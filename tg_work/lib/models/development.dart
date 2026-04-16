@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum DevelopmentStatus { emAndamento, parado, bom, podeMelhorar, feito }
+enum DevelopmentStatus { emAndamento, parado, bom, podeMelhorar, feito, semEfeito }
 
 extension DevelopmentStatusExtension on DevelopmentStatus {
   String get label {
@@ -15,6 +15,8 @@ extension DevelopmentStatusExtension on DevelopmentStatus {
         return 'Pode Melhorar';
       case DevelopmentStatus.feito:
         return 'Feito';
+      case DevelopmentStatus.semEfeito:
+        return 'Sem Efeito';
     }
   }
 
@@ -30,6 +32,8 @@ extension DevelopmentStatusExtension on DevelopmentStatus {
         return 'podeMelhorar';
       case DevelopmentStatus.feito:
         return 'feito';
+      case DevelopmentStatus.semEfeito:
+        return 'semEfeito';
     }
   }
 }
@@ -44,6 +48,8 @@ DevelopmentStatus devStatusFromKey(String key) {
       return DevelopmentStatus.podeMelhorar;
     case 'feito':
       return DevelopmentStatus.feito;
+    case 'semEfeito':
+      return DevelopmentStatus.semEfeito;
     default:
       return DevelopmentStatus.emAndamento;
   }

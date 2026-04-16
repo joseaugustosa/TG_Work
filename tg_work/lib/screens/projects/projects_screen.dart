@@ -7,6 +7,7 @@ import '../../services/auth_service.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/status_history_sheet.dart';
 import '../themes/themes_screen.dart';
+import 'project_detail_screen.dart';
 
 class ProjectsScreen extends StatelessWidget {
   const ProjectsScreen({super.key});
@@ -132,7 +133,12 @@ class ProjectsScreen extends StatelessWidget {
                   ),
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => ThemesScreen(project: project)),
+                    MaterialPageRoute(
+                      builder: (_) => ProjectDetailScreen(
+                        projectId: project.id,
+                        projectName: project.name,
+                      ),
+                    ),
                   ),
                 ),
               );

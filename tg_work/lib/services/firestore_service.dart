@@ -64,6 +64,12 @@ class FirestoreService {
     await _db.collection('projects').doc(projectId).delete();
   }
 
+  Stream<Project?> watchProject(String id) {
+    return _db.collection('projects').doc(id).snapshots().map(
+          (doc) => doc.exists ? Project.fromMap(doc.data()!, doc.id) : null,
+        );
+  }
+
   // ─── Themes ──────────────────────────────────────────────────────────────
 
   Stream<List<ThemeItem>> getThemes(String projectId) {
@@ -124,6 +130,12 @@ class FirestoreService {
 
   Future<void> deleteTheme(String themeId) async {
     await _db.collection('themes').doc(themeId).delete();
+  }
+
+  Stream<ThemeItem?> watchTheme(String id) {
+    return _db.collection('themes').doc(id).snapshots().map(
+          (doc) => doc.exists ? ThemeItem.fromMap(doc.data()!, doc.id) : null,
+        );
   }
 
   // ─── Developments ─────────────────────────────────────────────────────────
@@ -187,6 +199,12 @@ class FirestoreService {
 
   Future<void> deleteDevelopment(String devId) async {
     await _db.collection('developments').doc(devId).delete();
+  }
+
+  Stream<Development?> watchDevelopment(String id) {
+    return _db.collection('developments').doc(id).snapshots().map(
+          (doc) => doc.exists ? Development.fromMap(doc.data()!, doc.id) : null,
+        );
   }
 
   // ─── Status History ───────────────────────────────────────────────────────

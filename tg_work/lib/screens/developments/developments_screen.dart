@@ -7,6 +7,7 @@ import '../../models/development.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/status_history_sheet.dart';
+import 'development_detail_screen.dart';
 
 class DevelopmentsScreen extends StatelessWidget {
   final ThemeItem theme;
@@ -125,6 +126,17 @@ class DevelopmentsScreen extends StatelessWidget {
                         ],
                       ),
                     ],
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DevelopmentDetailScreen(
+                        devId: dev.id,
+                        devName: dev.name,
+                        theme: theme,
+                        project: project,
+                      ),
+                    ),
                   ),
                 ),
               );

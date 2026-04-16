@@ -37,6 +37,8 @@ Color devStatusColor(DevelopmentStatus status) {
       return Colors.amber;
     case DevelopmentStatus.feito:
       return Colors.green;
+    case DevelopmentStatus.semEfeito:
+      return Colors.blueGrey;
   }
 }
 
