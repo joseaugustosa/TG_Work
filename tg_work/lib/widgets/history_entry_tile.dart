@@ -21,6 +21,10 @@ class HistoryEntryTile extends StatelessWidget {
       uidOrEmpty: change.changedBy,
     );
 
+    final hasStoredSummary = change.summaryLine.trim().isNotEmpty;
+    final hasLegacyChips =
+        change.oldStatusLabel.isNotEmpty || change.newStatusLabel.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -34,7 +38,7 @@ class HistoryEntryTile extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              change.isAuditEntry ? Icons.edit_note : Icons.swap_horiz,
+              hasLegacyChips && !hasStoredSummary ? Icons.swap_horiz : Icons.edit_note,
               size: 18,
               color: const Color(0xFF1A237E),
             ),
@@ -44,16 +48,16 @@ class HistoryEntryTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (change.isAuditEntry)
+                if (hasStoredSummary)
                   Text(
-                    change.summaryLine,
+                    change.summaryLine.trim(),
                     style: const TextStyle(
                       fontWeight: FontWeight.w500,
                       fontSize: 13,
                       height: 1.25,
                     ),
                   )
-                else
+                else if (hasLegacyChips)
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -64,6 +68,15 @@ class HistoryEntryTile extends StatelessWidget {
                       ),
                       _StatusChip(label: change.newStatusLabel, old: false),
                     ],
+                  )
+                else
+                  Text(
+                    change.displaySummary,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      height: 1.25,
+                    ),
                   ),
                 const SizedBox(height: 4),
                 Text(

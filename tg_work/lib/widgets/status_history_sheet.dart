@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/firestore_service.dart';
+import '../utils/firestore_messages.dart';
 import 'history_entry_tile.dart';
 
 class StatusHistorySheet extends StatelessWidget {
@@ -80,7 +81,25 @@ class StatusHistorySheet extends StatelessWidget {
               child: StreamBuilder(
                 stream: service.getStatusHistory(entityId),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
+                  if (snapshot.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Não foi possível carregar o histórico.\n${firestoreHistoryErrorHint(snapshot.error)}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   final changes = snapshot.data ?? [];
@@ -94,6 +113,16 @@ class StatusHistorySheet extends StatelessWidget {
                           Text(
                             'Sem alterações registadas.',
                             style: TextStyle(color: Colors.grey[500]),
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'Se acabaste de guardar e continua vazio, confirma nas regras '
+                              'do Firestore permissões para a coleção status_changes.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                            ),
                           ),
                         ],
                       ),

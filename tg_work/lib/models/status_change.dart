@@ -34,37 +34,70 @@ class StatusChange {
     required this.changedAt,
   });
 
+  /// Registos novos (`kind == audit`) com texto; legacy só tinha setas de estado.
   bool get isAuditEntry => kind == 'audit' && summaryLine.trim().isNotEmpty;
 
+  /// Texto a mostrar: campo gravado, ou síntese a partir do estado (docs antigos sem `summaryLine`).
+  String get displaySummary {
+    if (summaryLine.trim().isNotEmpty) return summaryLine.trim();
+    if (oldStatusLabel.isNotEmpty || newStatusLabel.isNotEmpty) {
+      return 'Alteração: estado ($oldStatusLabel → $newStatusLabel)';
+    }
+    return 'Alteração registada';
+  }
+
   factory StatusChange.fromMap(Map<String, dynamic> map, String id) {
-    final summary = (map['summaryLine'] as String?)?.trim() ?? '';
+    String s(dynamic v) {
+      if (v == null) return '';
+      if (v is String) return v;
+      return v.toString();
+    }
+
+    DateTime parseTime(dynamic v) {
+      if (v == null) return DateTime.now();
+      if (v is Timestamp) return v.toDate();
+      if (v is DateTime) return v;
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      try {
+        return DateTime.parse(v.toString());
+      } catch (_) {
+        return DateTime.now();
+      }
+    }
+
+    final summary = s(map['summaryLine']).trim();
     final k = map['kind'] as String?;
-    final kind = k ??
-        ((summary.isNotEmpty) ? 'audit' : 'status');
+    final kind = k ?? ((summary.isNotEmpty) ? 'audit' : 'status');
     return StatusChange(
       id: id,
-      entityType: map['entityType'] ?? '',
-      entityId: map['entityId'] ?? '',
-      entityName: map['entityName'] ?? '',
+      entityType: s(map['entityType']),
+      entityId: s(map['entityId']),
+      entityName: s(map['entityName']),
       kind: kind,
       summaryLine: summary,
-      oldStatusKey: map['oldStatusKey'] ?? '',
-      oldStatusLabel: map['oldStatusLabel'] ?? '',
-      newStatusKey: map['newStatusKey'] ?? '',
-      newStatusLabel: map['newStatusLabel'] ?? '',
-      changedBy: map['changedBy'] ?? '',
-      changedByName: map['changedByName'] ?? '',
-      changedAt: (map['changedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      oldStatusKey: s(map['oldStatusKey']),
+      oldStatusLabel: s(map['oldStatusLabel']),
+      newStatusKey: s(map['newStatusKey']),
+      newStatusLabel: s(map['newStatusLabel']),
+      changedBy: s(map['changedBy']),
+      changedByName: s(map['changedByName']),
+      changedAt: parseTime(map['changedAt']),
     );
   }
 
   Map<String, dynamic> toMap() {
+    // Firestore: entradas `audit` devem ter sempre `summaryLine` visível no consola.
+    final sl = summaryLine.trim();
+    final summaryForStore = kind == 'audit'
+        ? (sl.isEmpty ? 'Alteração registada' : sl)
+        : sl;
+
     return {
       'entityType': entityType,
       'entityId': entityId,
       'entityName': entityName,
       'kind': kind,
-      'summaryLine': summaryLine,
+      'summaryLine': summaryForStore,
       'oldStatusKey': oldStatusKey,
       'oldStatusLabel': oldStatusLabel,
       'newStatusKey': newStatusKey,

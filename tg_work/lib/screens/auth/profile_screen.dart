@@ -4,8 +4,11 @@ import '../../services/auth_service.dart';
 import '../../utils/user_display.dart';
 
 /// Ver e alterar o nome no perfil Firebase. O email é mostrado; alterar email implica fluxos extra no Firebase.
+/// Com [embedded] true (ex.: aba no `HomeShellScreen`), não mostra AppBar próprio.
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  final bool embedded;
+
+  const ProfileScreen({super.key, this.embedded = false});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -70,13 +73,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = FirebaseAuth.instance.currentUser;
     final email = user?.email ?? '';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Perfil', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1A237E),
-        foregroundColor: Colors.white,
-      ),
-      body: SingleChildScrollView(
+    final scroll = SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
@@ -167,7 +164,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
         ),
+    );
+
+    if (widget.embedded) {
+      return scroll;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Perfil', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF1A237E),
+        foregroundColor: Colors.white,
       ),
+      body: scroll,
     );
   }
 }

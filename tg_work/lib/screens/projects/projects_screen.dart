@@ -3,11 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../models/project.dart';
 import '../../services/firestore_service.dart';
-import '../../services/auth_service.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/status_history_sheet.dart';
-import '../auth/profile_screen.dart';
 import 'project_detail_screen.dart';
 
 class ProjectsScreen extends StatelessWidget {
@@ -16,56 +14,13 @@ class ProjectsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firestoreService = FirestoreService();
-    final authService = AuthService();
-
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.userChanges(),
       builder: (context, userSnapshot) {
         final user = userSnapshot.data ?? FirebaseAuth.instance.currentUser;
         final userName = firebaseUserDisplayLabel(user);
-        final profileLine = firebaseProfileSubtitle(user);
 
         return Scaffold(
-          appBar: AppBar(
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('TG Work', style: TextStyle(fontWeight: FontWeight.bold)),
-                if (profileLine.isNotEmpty)
-                  Text(
-                    profileLine,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w400,
-                      color: Colors.white70,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-            backgroundColor: const Color(0xFF1A237E),
-            foregroundColor: Colors.white,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.person_outline),
-                tooltip: 'Perfil',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: IconButton(
-                  icon: const Icon(Icons.logout),
-                  tooltip: 'Sair',
-                  onPressed: () async => await authService.signOut(),
-                ),
-              ),
-            ],
-          ),
           body: StreamBuilder<List<Project>>(
         stream: firestoreService.getProjects(),
         builder: (context, snapshot) {

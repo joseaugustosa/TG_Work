@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../utils/user_display.dart';
 import '../utils/entity_change_summary.dart';
 import '../models/project.dart';
@@ -62,18 +63,17 @@ class FirestoreService {
 
     await _db.collection('projects').doc(project.id).update(updated.toMap());
 
-    final summary = summarizeProjectEdit(oldProject, project);
-    if (summary != null) {
-      await _logAuditEntry(
-        entityType: 'project',
-        entityId: project.id,
-        entityName: project.name,
-        summaryLine: summary,
-        userId: userId,
-        userName: actorName,
-        changedAt: now,
-      );
-    }
+    final summary =
+        summarizeProjectEdit(oldProject, project) ?? 'Alteração: gravação registada';
+    await _logAuditEntry(
+      entityType: 'project',
+      entityId: project.id,
+      entityName: project.name,
+      summaryLine: summary,
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
   }
 
   Future<void> deleteProject(String projectId) async {
@@ -144,18 +144,17 @@ class FirestoreService {
 
     await _db.collection('themes').doc(theme.id).update(updated.toMap());
 
-    final summary = summarizeThemeEdit(oldTheme, theme);
-    if (summary != null) {
-      await _logAuditEntry(
-        entityType: 'theme',
-        entityId: theme.id,
-        entityName: theme.name,
-        summaryLine: summary,
-        userId: userId,
-        userName: actorName,
-        changedAt: now,
-      );
-    }
+    final summary =
+        summarizeThemeEdit(oldTheme, theme) ?? 'Alteração: gravação registada';
+    await _logAuditEntry(
+      entityType: 'theme',
+      entityId: theme.id,
+      entityName: theme.name,
+      summaryLine: summary,
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
   }
 
   Future<void> deleteTheme(String themeId) async {
@@ -227,18 +226,17 @@ class FirestoreService {
 
     await _db.collection('developments').doc(dev.id).update(updated.toMap());
 
-    final summary = summarizeDevelopmentEdit(oldDev, dev);
-    if (summary != null) {
-      await _logAuditEntry(
-        entityType: 'development',
-        entityId: dev.id,
-        entityName: dev.name,
-        summaryLine: summary,
-        userId: userId,
-        userName: actorName,
-        changedAt: now,
-      );
-    }
+    final summary =
+        summarizeDevelopmentEdit(oldDev, dev) ?? 'Alteração: gravação registada';
+    await _logAuditEntry(
+      entityType: 'development',
+      entityId: dev.id,
+      entityName: dev.name,
+      summaryLine: summary,
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
   }
 
   Future<void> deleteDevelopment(String devId) async {
@@ -253,15 +251,26 @@ class FirestoreService {
 
   // ─── Histórico (coleção `status_changes`) ───────────────────────────────
 
+  /// Histórico por entidade. Ordenação em memória para não exigir índice composto
+  /// Firestore (`where` + `orderBy` em campos diferentes falha sem índice).
   Stream<List<StatusChange>> getStatusHistory(String entityId) {
+    final id = entityId.trim();
     return _db
         .collection('status_changes')
-        .where('entityId', isEqualTo: entityId)
-        .orderBy('changedAt', descending: true)
+        .where('entityId', isEqualTo: id)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => StatusChange.fromMap(d.data(), d.id))
-            .toList());
+        .map((snap) {
+      final list = <StatusChange>[];
+      for (final d in snap.docs) {
+        try {
+          list.add(StatusChange.fromMap(d.data(), d.id));
+        } catch (e, st) {
+          debugPrint('TG_Work: ignorado doc status_changes/${d.id}: $e\n$st');
+        }
+      }
+      list.sort((a, b) => b.changedAt.compareTo(a.changedAt));
+      return list;
+    });
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────
@@ -276,10 +285,11 @@ class FirestoreService {
     required DateTime changedAt,
   }) async {
     final actor = normalizeStoredActorName(userName);
+    final eid = entityId.trim();
     final entry = StatusChange(
       id: '',
       entityType: entityType,
-      entityId: entityId,
+      entityId: eid,
       entityName: entityName,
       kind: 'audit',
       summaryLine: summaryLine,
@@ -291,6 +301,11 @@ class FirestoreService {
       changedByName: actor,
       changedAt: changedAt,
     );
-    await _db.collection('status_changes').add(entry.toMap());
+    try {
+      await _db.collection('status_changes').add(entry.toMap());
+    } catch (e, st) {
+      // O projeto/tema/desenvolvimento já foi gravado; o histórico falhou (ex.: regras).
+      debugPrint('TG_Work: falha ao gravar histórico: $e\n$st');
+    }
   }
 }

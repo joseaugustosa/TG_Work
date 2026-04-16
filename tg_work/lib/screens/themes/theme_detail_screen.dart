@@ -5,6 +5,7 @@ import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../models/status_change.dart';
 import '../../services/firestore_service.dart';
+import '../../utils/firestore_messages.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/history_entry_tile.dart';
@@ -216,7 +217,17 @@ class _ThemeDetailBody extends StatelessWidget {
         StreamBuilder<List<StatusChange>>(
           stream: service.getStatusHistory(theme.id),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  'Erro ao carregar histórico: ${firestoreHistoryErrorHint(snapshot.error)}',
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
+              );
+            }
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Padding(
                 padding: EdgeInsets.all(20),
                 child: Center(child: CircularProgressIndicator()),

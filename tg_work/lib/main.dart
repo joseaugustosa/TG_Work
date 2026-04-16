@@ -1,13 +1,20 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'screens/auth/login_screen.dart';
-import 'screens/projects/projects_screen.dart';
+import 'screens/home_shell_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Cache local do Firestore no Windows tem casos de falha/crash com listeners
+  // (ex.: flutterfire#13145). Desativar persistência evita histórico vazio ou erros silenciosos.
+  if (defaultTargetPlatform == TargetPlatform.windows) {
+    FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: false);
+  }
   runApp(const TGWorkApp());
 }
 
@@ -33,7 +40,7 @@ class TGWorkApp extends StatelessWidget {
             );
           }
           if (snapshot.hasData) {
-            return const ProjectsScreen();
+            return const HomeShellScreen();
           }
           return const LoginScreen();
         },
