@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/user_display.dart';
+import '../utils/entity_change_summary.dart';
 import '../models/project.dart';
 import '../models/theme_item.dart';
 import '../models/development.dart';
@@ -19,8 +20,23 @@ class FirestoreService {
             snap.docs.map((d) => Project.fromMap(d.data(), d.id)).toList());
   }
 
-  Future<void> addProject(Project project) async {
-    await _db.collection('projects').add(project.toMap());
+  Future<void> addProject(
+    Project project, {
+    required String userId,
+    required String userName,
+  }) async {
+    final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
+    final ref = await _db.collection('projects').add(project.toMap());
+    await _logAuditEntry(
+      entityType: 'project',
+      entityId: ref.id,
+      entityName: project.name,
+      summaryLine: 'Criação do projeto',
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
   }
 
   Future<void> updateProject(
@@ -46,15 +62,13 @@ class FirestoreService {
 
     await _db.collection('projects').doc(project.id).update(updated.toMap());
 
-    if (oldProject.status != project.status) {
-      await _logStatusChange(
+    final summary = summarizeProjectEdit(oldProject, project);
+    if (summary != null) {
+      await _logAuditEntry(
         entityType: 'project',
         entityId: project.id,
         entityName: project.name,
-        oldStatusKey: oldProject.status.key,
-        oldStatusLabel: oldProject.status.label,
-        newStatusKey: project.status.key,
-        newStatusLabel: project.status.label,
+        summaryLine: summary,
         userId: userId,
         userName: actorName,
         changedAt: now,
@@ -87,8 +101,23 @@ class FirestoreService {
     });
   }
 
-  Future<void> addTheme(ThemeItem theme) async {
-    await _db.collection('themes').add(theme.toMap());
+  Future<void> addTheme(
+    ThemeItem theme, {
+    required String userId,
+    required String userName,
+  }) async {
+    final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
+    final ref = await _db.collection('themes').add(theme.toMap());
+    await _logAuditEntry(
+      entityType: 'theme',
+      entityId: ref.id,
+      entityName: theme.name,
+      summaryLine: 'Criação do tema',
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
   }
 
   Future<void> updateTheme(
@@ -115,15 +144,13 @@ class FirestoreService {
 
     await _db.collection('themes').doc(theme.id).update(updated.toMap());
 
-    if (oldTheme.status != theme.status) {
-      await _logStatusChange(
+    final summary = summarizeThemeEdit(oldTheme, theme);
+    if (summary != null) {
+      await _logAuditEntry(
         entityType: 'theme',
         entityId: theme.id,
         entityName: theme.name,
-        oldStatusKey: oldTheme.status.key,
-        oldStatusLabel: oldTheme.status.label,
-        newStatusKey: theme.status.key,
-        newStatusLabel: theme.status.label,
+        summaryLine: summary,
         userId: userId,
         userName: actorName,
         changedAt: now,
@@ -156,8 +183,23 @@ class FirestoreService {
     });
   }
 
-  Future<void> addDevelopment(Development dev) async {
-    await _db.collection('developments').add(dev.toMap());
+  Future<void> addDevelopment(
+    Development dev, {
+    required String userId,
+    required String userName,
+  }) async {
+    final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
+    final ref = await _db.collection('developments').add(dev.toMap());
+    await _logAuditEntry(
+      entityType: 'development',
+      entityId: ref.id,
+      entityName: dev.name,
+      summaryLine: 'Criação do desenvolvimento',
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
   }
 
   Future<void> updateDevelopment(
@@ -185,15 +227,13 @@ class FirestoreService {
 
     await _db.collection('developments').doc(dev.id).update(updated.toMap());
 
-    if (oldDev.status != dev.status) {
-      await _logStatusChange(
+    final summary = summarizeDevelopmentEdit(oldDev, dev);
+    if (summary != null) {
+      await _logAuditEntry(
         entityType: 'development',
         entityId: dev.id,
         entityName: dev.name,
-        oldStatusKey: oldDev.status.key,
-        oldStatusLabel: oldDev.status.label,
-        newStatusKey: dev.status.key,
-        newStatusLabel: dev.status.label,
+        summaryLine: summary,
         userId: userId,
         userName: actorName,
         changedAt: now,
@@ -211,7 +251,7 @@ class FirestoreService {
         );
   }
 
-  // ─── Status History ───────────────────────────────────────────────────────
+  // ─── Histórico (coleção `status_changes`) ───────────────────────────────
 
   Stream<List<StatusChange>> getStatusHistory(String entityId) {
     return _db
@@ -226,31 +266,31 @@ class FirestoreService {
 
   // ─── Internal ─────────────────────────────────────────────────────────────
 
-  Future<void> _logStatusChange({
+  Future<void> _logAuditEntry({
     required String entityType,
     required String entityId,
     required String entityName,
-    required String oldStatusKey,
-    required String oldStatusLabel,
-    required String newStatusKey,
-    required String newStatusLabel,
+    required String summaryLine,
     required String userId,
     required String userName,
     required DateTime changedAt,
   }) async {
-    final change = StatusChange(
+    final actor = normalizeStoredActorName(userName);
+    final entry = StatusChange(
       id: '',
       entityType: entityType,
       entityId: entityId,
       entityName: entityName,
-      oldStatusKey: oldStatusKey,
-      oldStatusLabel: oldStatusLabel,
-      newStatusKey: newStatusKey,
-      newStatusLabel: newStatusLabel,
+      kind: 'audit',
+      summaryLine: summaryLine,
+      oldStatusKey: '',
+      oldStatusLabel: '',
+      newStatusKey: '',
+      newStatusLabel: '',
       changedBy: userId,
-      changedByName: normalizeStoredActorName(userName),
+      changedByName: actor,
       changedAt: changedAt,
     );
-    await _db.collection('status_changes').add(change.toMap());
+    await _db.collection('status_changes').add(entry.toMap());
   }
 }

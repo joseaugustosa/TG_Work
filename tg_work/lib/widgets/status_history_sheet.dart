@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/status_change.dart';
 import '../services/firestore_service.dart';
-import '../utils/user_display.dart';
+import 'history_entry_tile.dart';
 
 class StatusHistorySheet extends StatelessWidget {
   final String entityId;
@@ -58,7 +57,7 @@ class StatusHistorySheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Histórico de Estado',
+                          'Histórico de alterações',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -78,7 +77,7 @@ class StatusHistorySheet extends StatelessWidget {
             ),
             const Divider(height: 1),
             Expanded(
-              child: StreamBuilder<List<StatusChange>>(
+              child: StreamBuilder(
                 stream: service.getStatusHistory(entityId),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -93,7 +92,7 @@ class StatusHistorySheet extends StatelessWidget {
                           Icon(Icons.history_toggle_off, size: 56, color: Colors.grey[400]),
                           const SizedBox(height: 12),
                           Text(
-                            'Sem alterações de estado registadas.',
+                            'Sem alterações registadas.',
                             style: TextStyle(color: Colors.grey[500]),
                           ),
                         ],
@@ -106,60 +105,9 @@ class StatusHistorySheet extends StatelessWidget {
                     itemCount: changes.length,
                     separatorBuilder: (context, i) => const Divider(height: 1),
                     itemBuilder: (context, index) {
-                      final change = changes[index];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1A237E).withValues(alpha: 0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.swap_horiz,
-                                size: 18,
-                                color: Color(0xFF1A237E),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      _StatusChip(label: change.oldStatusLabel, old: true),
-                                      const Padding(
-                                        padding: EdgeInsets.symmetric(horizontal: 6),
-                                        child: Icon(Icons.arrow_forward, size: 14, color: Colors.grey),
-                                      ),
-                                      _StatusChip(label: change.newStatusLabel, old: false),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    auditActorLabel(
-                                      storedDisplayName: change.changedByName,
-                                      uidOrEmpty: change.changedBy,
-                                    ),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  Text(
-                                    fmt.format(change.changedAt),
-                                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                      return HistoryEntryTile(
+                        change: changes[index],
+                        fmt: fmt,
                       );
                     },
                   );
@@ -169,34 +117,6 @@ class StatusHistorySheet extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final bool old;
-
-  const _StatusChip({required this.label, required this.old});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = old ? Colors.grey[600]! : const Color(0xFF1A237E);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
     );
   }
 }

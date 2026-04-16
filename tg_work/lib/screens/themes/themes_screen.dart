@@ -222,7 +222,11 @@ class ThemesScreen extends StatelessWidget {
                   createdAt: theme?.createdAt ?? DateTime.now(),
                 );
                 if (theme == null) {
-                  await service.addTheme(t);
+                  await service.addTheme(
+                    t,
+                    userId: userId,
+                    userName: userName,
+                  );
                 } else {
                   await service.updateTheme(
                     t,

@@ -225,7 +225,11 @@ class DevelopmentsScreen extends StatelessWidget {
                   createdAt: dev?.createdAt ?? DateTime.now(),
                 );
                 if (dev == null) {
-                  await service.addDevelopment(d);
+                  await service.addDevelopment(
+                    d,
+                    userId: userId,
+                    userName: userName,
+                  );
                 } else {
                   await service.updateDevelopment(
                     d,

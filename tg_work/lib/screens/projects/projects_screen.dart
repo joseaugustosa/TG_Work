@@ -257,7 +257,11 @@ class ProjectsScreen extends StatelessWidget {
                   createdAt: project?.createdAt ?? DateTime.now(),
                 );
                 if (project == null) {
-                  await service.addProject(p);
+                  await service.addProject(
+                    p,
+                    userId: userId,
+                    userName: userName,
+                  );
                 } else {
                   await service.updateProject(
                     p,
