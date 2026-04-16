@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "934584280255",
+    "project_id": "tg-work-2026",
+    "storage_bucket": "tg-work-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:934584280255:android:fb3a30350f998f8aba920a",
+        "android_client_info": {
+          "package_name": "com.tgwork.tg_work"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAClwzOfCclNBjHQHeCrP2hujQQ1XIT3sE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
