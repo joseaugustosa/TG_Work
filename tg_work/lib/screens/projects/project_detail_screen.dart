@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../models/project.dart';
 import '../../models/status_change.dart';
 import '../../services/firestore_service.dart';
+import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
 import '../themes/themes_screen.dart';
 
@@ -21,7 +22,7 @@ class ProjectDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final service = FirestoreService();
     final user = FirebaseAuth.instance.currentUser;
-    final userName = user?.displayName ?? user?.email ?? '';
+    final userName = firebaseUserDisplayLabel(user);
 
     return StreamBuilder<Project?>(
       stream: service.watchProject(projectId),
@@ -95,14 +96,14 @@ class ProjectDetailScreen extends StatelessWidget {
                 TextField(
                   controller: descController,
                   decoration: const InputDecoration(
-                    labelText: 'Descrição',
+                    labelText: 'Descrição / introdução',
                     border: OutlineInputBorder(),
                   ),
                   maxLines: 3,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ProjectStatus>(
-                  value: status,
+                  initialValue: status,
                   decoration: const InputDecoration(
                     labelText: 'Estado',
                     border: OutlineInputBorder(),
@@ -289,10 +290,16 @@ class _InfoCard extends StatelessWidget {
 
   Widget _auditText(Project p, DateFormat f) {
     if (p.updatedBy != null && p.updatedAt != null) {
-      final name = (p.updatedByName?.isNotEmpty == true) ? p.updatedByName! : p.updatedBy!;
+      final name = auditActorLabel(
+        storedDisplayName: p.updatedByName,
+        uidOrEmpty: p.updatedBy ?? '',
+      );
       return _AuditRow(icon: Icons.edit, text: 'Editado por $name · ${f.format(p.updatedAt!)}');
     }
-    final name = p.createdByName.isNotEmpty ? p.createdByName : p.createdBy;
+    final name = auditActorLabel(
+      storedDisplayName: p.createdByName.isNotEmpty ? p.createdByName : null,
+      uidOrEmpty: p.createdBy,
+    );
     return _AuditRow(icon: Icons.person_add_alt, text: 'Criado por $name · ${f.format(p.createdAt)}');
   }
 }
@@ -359,7 +366,10 @@ class _HistoryTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  change.changedByName.isNotEmpty ? change.changedByName : change.changedBy,
+                  auditActorLabel(
+                    storedDisplayName: change.changedByName,
+                    uidOrEmpty: change.changedBy,
+                  ),
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
                 Text(

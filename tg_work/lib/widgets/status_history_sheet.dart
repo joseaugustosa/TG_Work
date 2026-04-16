@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/status_change.dart';
 import '../services/firestore_service.dart';
+import '../utils/user_display.dart';
 
 class StatusHistorySheet extends StatelessWidget {
   final String entityId;
@@ -141,9 +142,10 @@ class StatusHistorySheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    change.changedByName.isNotEmpty
-                                        ? change.changedByName
-                                        : change.changedBy,
+                                    auditActorLabel(
+                                      storedDisplayName: change.changedByName,
+                                      uidOrEmpty: change.changedBy,
+                                    ),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
                                       fontSize: 13,

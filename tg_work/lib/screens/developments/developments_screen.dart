@@ -5,6 +5,7 @@ import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../models/development.dart';
 import '../../services/firestore_service.dart';
+import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/status_history_sheet.dart';
 import 'development_detail_screen.dart';
@@ -19,7 +20,7 @@ class DevelopmentsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final firestoreService = FirestoreService();
     final user = FirebaseAuth.instance.currentUser;
-    final userName = user?.displayName ?? user?.email ?? '';
+    final userName = firebaseUserDisplayLabel(user);
 
     return Scaffold(
       appBar: AppBar(
@@ -187,7 +188,7 @@ class DevelopmentsScreen extends StatelessWidget {
                 TextField(
                   controller: descController,
                   decoration: const InputDecoration(
-                      labelText: 'Descrição', border: OutlineInputBorder()),
+                      labelText: 'Descrição / introdução', border: OutlineInputBorder()),
                   maxLines: 3,
                 ),
                 const SizedBox(height: 12),
@@ -253,17 +254,23 @@ class _AuditLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final fmt = DateFormat('dd/MM/yy HH:mm');
     if (dev.updatedBy != null && dev.updatedAt != null) {
-      final name = (dev.updatedByName?.isNotEmpty == true)
-          ? dev.updatedByName!
-          : dev.updatedBy!;
+      final name = auditActorLabel(
+        storedDisplayName: dev.updatedByName,
+        uidOrEmpty: dev.updatedBy ?? '',
+      );
       return Text(
         'Atualizado por $name · ${fmt.format(dev.updatedAt!)}',
         style: const TextStyle(fontSize: 11, color: Colors.grey),
       );
     }
-    if (dev.createdByName.isNotEmpty) {
+    if (dev.createdBy.isNotEmpty || dev.createdByName.isNotEmpty) {
+      final name = auditActorLabel(
+        storedDisplayName:
+            dev.createdByName.isNotEmpty ? dev.createdByName : null,
+        uidOrEmpty: dev.createdBy,
+      );
       return Text(
-        'Criado por ${dev.createdByName} · ${fmt.format(dev.createdAt)}',
+        'Criado por $name · ${fmt.format(dev.createdAt)}',
         style: const TextStyle(fontSize: 11, color: Colors.grey),
       );
     }

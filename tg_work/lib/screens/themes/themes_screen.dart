@@ -4,9 +4,9 @@ import 'package:intl/intl.dart';
 import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../services/firestore_service.dart';
+import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/status_history_sheet.dart';
-import '../developments/developments_screen.dart';
 import 'theme_detail_screen.dart';
 
 class ThemesScreen extends StatelessWidget {
@@ -18,7 +18,7 @@ class ThemesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final firestoreService = FirestoreService();
     final user = FirebaseAuth.instance.currentUser;
-    final userName = user?.displayName ?? user?.email ?? '';
+    final userName = firebaseUserDisplayLabel(user);
 
     return Scaffold(
       appBar: AppBar(
@@ -186,7 +186,7 @@ class ThemesScreen extends StatelessWidget {
                 TextField(
                   controller: descController,
                   decoration: const InputDecoration(
-                      labelText: 'Descrição', border: OutlineInputBorder()),
+                      labelText: 'Descrição / introdução', border: OutlineInputBorder()),
                   maxLines: 3,
                 ),
                 const SizedBox(height: 12),
@@ -251,17 +251,23 @@ class _AuditLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final fmt = DateFormat('dd/MM/yy HH:mm');
     if (theme.updatedBy != null && theme.updatedAt != null) {
-      final name = (theme.updatedByName?.isNotEmpty == true)
-          ? theme.updatedByName!
-          : theme.updatedBy!;
+      final name = auditActorLabel(
+        storedDisplayName: theme.updatedByName,
+        uidOrEmpty: theme.updatedBy ?? '',
+      );
       return Text(
         'Atualizado por $name · ${fmt.format(theme.updatedAt!)}',
         style: const TextStyle(fontSize: 11, color: Colors.grey),
       );
     }
-    if (theme.createdByName.isNotEmpty) {
+    if (theme.createdBy.isNotEmpty || theme.createdByName.isNotEmpty) {
+      final name = auditActorLabel(
+        storedDisplayName:
+            theme.createdByName.isNotEmpty ? theme.createdByName : null,
+        uidOrEmpty: theme.createdBy,
+      );
       return Text(
-        'Criado por ${theme.createdByName} · ${fmt.format(theme.createdAt)}',
+        'Criado por $name · ${fmt.format(theme.createdAt)}',
         style: const TextStyle(fontSize: 11, color: Colors.grey),
       );
     }

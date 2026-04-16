@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/user_display.dart';
 import '../models/project.dart';
 import '../models/theme_item.dart';
 import '../models/development.dart';
@@ -29,6 +30,7 @@ class FirestoreService {
     required String userName,
   }) async {
     final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
     final updated = Project(
       id: project.id,
       name: project.name,
@@ -38,7 +40,7 @@ class FirestoreService {
       createdByName: project.createdByName,
       createdAt: project.createdAt,
       updatedBy: userId,
-      updatedByName: userName,
+      updatedByName: actorName,
       updatedAt: now,
     );
 
@@ -54,7 +56,7 @@ class FirestoreService {
         newStatusKey: project.status.key,
         newStatusLabel: project.status.label,
         userId: userId,
-        userName: userName,
+        userName: actorName,
         changedAt: now,
       );
     }
@@ -96,6 +98,7 @@ class FirestoreService {
     required String userName,
   }) async {
     final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
     final updated = ThemeItem(
       id: theme.id,
       name: theme.name,
@@ -106,7 +109,7 @@ class FirestoreService {
       createdByName: theme.createdByName,
       createdAt: theme.createdAt,
       updatedBy: userId,
-      updatedByName: userName,
+      updatedByName: actorName,
       updatedAt: now,
     );
 
@@ -122,7 +125,7 @@ class FirestoreService {
         newStatusKey: theme.status.key,
         newStatusLabel: theme.status.label,
         userId: userId,
-        userName: userName,
+        userName: actorName,
         changedAt: now,
       );
     }
@@ -164,6 +167,7 @@ class FirestoreService {
     required String userName,
   }) async {
     final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
     final updated = Development(
       id: dev.id,
       name: dev.name,
@@ -175,7 +179,7 @@ class FirestoreService {
       createdByName: dev.createdByName,
       createdAt: dev.createdAt,
       updatedBy: userId,
-      updatedByName: userName,
+      updatedByName: actorName,
       updatedAt: now,
     );
 
@@ -191,7 +195,7 @@ class FirestoreService {
         newStatusKey: dev.status.key,
         newStatusLabel: dev.status.label,
         userId: userId,
-        userName: userName,
+        userName: actorName,
         changedAt: now,
       );
     }
@@ -244,7 +248,7 @@ class FirestoreService {
       newStatusKey: newStatusKey,
       newStatusLabel: newStatusLabel,
       changedBy: userId,
-      changedByName: userName,
+      changedByName: normalizeStoredActorName(userName),
       changedAt: changedAt,
     );
     await _db.collection('status_changes').add(change.toMap());

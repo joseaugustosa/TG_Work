@@ -22,11 +22,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await _authService.signUp(
+      final cred = await _authService.signUp(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      await _authService.updateDisplayName(_nameController.text.trim());
+      final user = cred.user;
+      if (user != null) {
+        await _authService.applyDisplayNameAfterRegistration(
+          user,
+          _nameController.text.trim(),
+        );
+      }
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
