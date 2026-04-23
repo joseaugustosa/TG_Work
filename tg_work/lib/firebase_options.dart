@@ -17,19 +17,13 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for macos - '
@@ -49,6 +43,15 @@ class DefaultFirebaseOptions {
     }
   }
 
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'REPLACE_WITH_IOS_API_KEY',
+    appId: 'REPLACE_WITH_IOS_APP_ID',
+    messagingSenderId: '934584280255',
+    projectId: 'tg-work-2026',
+    storageBucket: 'tg-work-2026.firebasestorage.app',
+    iosBundleId: 'com.tgwork.tgWork',
+  );
+
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAClwzOfCclNBjHQHeCrP2hujQQ1XIT3sE',
     appId: '1:934584280255:android:fb3a30350f998f8aba920a',
@@ -58,6 +61,15 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw',
+    appId: '1:934584280255:web:ab598469baa14040ba920a',
+    messagingSenderId: '934584280255',
+    projectId: 'tg-work-2026',
+    authDomain: 'tg-work-2026.firebaseapp.com',
+    storageBucket: 'tg-work-2026.firebasestorage.app',
+  );
+
+  static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw',
     appId: '1:934584280255:web:ab598469baa14040ba920a',
     messagingSenderId: '934584280255',
