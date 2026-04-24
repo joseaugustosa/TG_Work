@@ -7,6 +7,9 @@ String? summarizeProjectEdit(Project old, Project next) {
   final p = <String>[];
   if (old.name != next.name) p.add('nome');
   if (old.description != next.description) p.add('descrição');
+  if (old.descriptionRecordingUrl != next.descriptionRecordingUrl) {
+    p.add('gravação da nota');
+  }
   if (old.status != next.status) {
     p.add('estado (${old.status.label} → ${next.status.label})');
   }
@@ -18,6 +21,9 @@ String? summarizeThemeEdit(ThemeItem old, ThemeItem next) {
   final p = <String>[];
   if (old.name != next.name) p.add('nome');
   if (old.description != next.description) p.add('descrição');
+  if (old.descriptionRecordingUrl != next.descriptionRecordingUrl) {
+    p.add('gravação da nota');
+  }
   if (old.status != next.status) {
     p.add('estado (${old.status.label} → ${next.status.label})');
   }
@@ -29,6 +35,9 @@ String? summarizeDevelopmentEdit(Development old, Development next) {
   final p = <String>[];
   if (old.name != next.name) p.add('nome');
   if (old.description != next.description) p.add('descrição');
+  if (old.descriptionRecordingUrl != next.descriptionRecordingUrl) {
+    p.add('gravação da nota');
+  }
   if (old.status != next.status) {
     p.add('estado (${old.status.label} → ${next.status.label})');
   }

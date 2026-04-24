@@ -47,6 +47,7 @@ class ThemeItem {
   final String id;
   final String name;
   final String description;
+  final String? descriptionRecordingUrl;
   final ThemeStatus status;
   final String projectId;
   final String createdBy;
@@ -60,6 +61,7 @@ class ThemeItem {
     required this.id,
     required this.name,
     required this.description,
+    this.descriptionRecordingUrl,
     required this.status,
     required this.projectId,
     this.createdBy = '',
@@ -75,6 +77,7 @@ class ThemeItem {
       id: id,
       name: map['name'] ?? '',
       description: map['description'] ?? '',
+      descriptionRecordingUrl: map['descriptionRecordingUrl'] as String?,
       status: themeStatusFromKey(map['status'] ?? ''),
       projectId: map['projectId'] ?? '',
       createdBy: map['createdBy'] ?? '',
@@ -90,6 +93,7 @@ class ThemeItem {
     return {
       'name': name,
       'description': description,
+      if (descriptionRecordingUrl != null) 'descriptionRecordingUrl': descriptionRecordingUrl,
       'status': status.key,
       'projectId': projectId,
       'createdBy': createdBy,

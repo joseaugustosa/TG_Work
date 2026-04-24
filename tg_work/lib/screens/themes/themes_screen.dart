@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../services/firestore_service.dart';
+import '../../services/note_recording_storage.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/note_recording_editor.dart';
 import '../../widgets/status_history_sheet.dart';
+import '../../widgets/voice_dictation_text_field.dart';
 import 'theme_detail_screen.dart';
 
 class ThemesScreen extends StatelessWidget {
@@ -166,6 +170,7 @@ class ThemesScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: theme?.name ?? '');
     final descController = TextEditingController(text: theme?.description ?? '');
+    final recordingHolder = NoteRecordingHolder(originalUrl: theme?.descriptionRecordingUrl);
     ThemeStatus status = theme?.status ?? ThemeStatus.emEstudo;
 
     showDialog(
@@ -183,11 +188,15 @@ class ThemesScreen extends StatelessWidget {
                       labelText: 'Nome do tema', border: OutlineInputBorder()),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                VoiceDictationTextField(
                   controller: descController,
-                  decoration: const InputDecoration(
-                      labelText: 'Descrição / introdução', border: OutlineInputBorder()),
+                  labelText: 'Descrição / introdução',
                   maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                NoteRecordingEditor(
+                  holder: recordingHolder,
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ThemeStatus>(
@@ -211,7 +220,7 @@ class ThemesScreen extends StatelessWidget {
                   foregroundColor: Colors.white),
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
-                final t = ThemeItem(
+                final base = ThemeItem(
                   id: theme?.id ?? '',
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
@@ -222,14 +231,60 @@ class ThemesScreen extends StatelessWidget {
                   createdAt: theme?.createdAt ?? DateTime.now(),
                 );
                 if (theme == null) {
-                  await service.addTheme(
-                    t,
+                  final newId = await service.addTheme(
+                    base,
                     userId: userId,
                     userName: userName,
                   );
+                  final added = ThemeItem(
+                    id: newId,
+                    name: base.name,
+                    description: base.description,
+                    status: base.status,
+                    projectId: base.projectId,
+                    createdBy: base.createdBy,
+                    createdByName: base.createdByName,
+                    createdAt: base.createdAt,
+                  );
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) => NoteRecordingStorage.uploadThemeNote(newId, f),
+                  );
+                  if (audioUrl != null) {
+                    await service.updateTheme(
+                      ThemeItem(
+                        id: newId,
+                        name: added.name,
+                        description: added.description,
+                        descriptionRecordingUrl: audioUrl,
+                        status: added.status,
+                        projectId: added.projectId,
+                        createdBy: added.createdBy,
+                        createdByName: added.createdByName,
+                        createdAt: added.createdAt,
+                      ),
+                      oldTheme: added,
+                      userId: userId,
+                      userName: userName,
+                    );
+                  }
                 } else {
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) => NoteRecordingStorage.uploadThemeNote(theme.id, f),
+                  );
                   await service.updateTheme(
-                    t,
+                    ThemeItem(
+                      id: theme.id,
+                      name: base.name,
+                      description: base.description,
+                      descriptionRecordingUrl: audioUrl,
+                      status: base.status,
+                      projectId: base.projectId,
+                      createdBy: base.createdBy,
+                      createdByName: base.createdByName,
+                      createdAt: base.createdAt,
+                    ),
                     oldTheme: theme,
                     userId: userId,
                     userName: userName,

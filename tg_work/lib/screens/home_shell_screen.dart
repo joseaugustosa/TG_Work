@@ -5,9 +5,14 @@ import 'projects/projects_screen.dart';
 import '../services/auth_service.dart';
 import '../utils/user_display.dart';
 
-/// Shell principal com abas — funciona bem em Windows (navegação clara) e no telemóvel.
+/// Shell principal: mesmas secções (Projetos, Perfil) em todos os sistemas.
+/// Em ecrã largo (ex.: Windows) mostra barra lateral; no telemóvel usa abas no AppBar.
+/// Deslize entre abas igual ao Android (`BouncingScrollPhysics`).
 class HomeShellScreen extends StatefulWidget {
   const HomeShellScreen({super.key});
+
+  /// Largura mínima para usar barra lateral em vez de TabBar no AppBar.
+  static const double railBreakpoint = 840;
 
   @override
   State<HomeShellScreen> createState() => _HomeShellScreenState();
@@ -31,6 +36,32 @@ class _HomeShellScreenState extends State<HomeShellScreen>
     super.dispose();
   }
 
+  static const _tabPhysics = BouncingScrollPhysics();
+
+  Widget _tabPages() {
+    return TabBarView(
+      controller: _tabController,
+      physics: _tabPhysics,
+      children: const [
+        ProjectsScreen(),
+        ProfileScreen(embedded: true),
+      ],
+    );
+  }
+
+  PreferredSizeWidget? _tabBar() {
+    return TabBar(
+      controller: _tabController,
+      indicatorColor: Colors.white,
+      labelColor: Colors.white,
+      unselectedLabelColor: Colors.white70,
+      tabs: const [
+        Tab(icon: Icon(Icons.folder_outlined), text: 'Projetos'),
+        Tab(icon: Icon(Icons.person_outline), text: 'Perfil'),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
@@ -38,6 +69,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
       builder: (context, userSnapshot) {
         final user = userSnapshot.data ?? FirebaseAuth.instance.currentUser;
         final profileLine = firebaseProfileSubtitle(user);
+        final wide = MediaQuery.sizeOf(context).width >= HomeShellScreen.railBreakpoint;
 
         return Scaffold(
           appBar: AppBar(
@@ -71,30 +103,43 @@ class _HomeShellScreenState extends State<HomeShellScreen>
                 ),
               ),
             ],
-            bottom: TabBar(
-              controller: _tabController,
-              indicatorColor: Colors.white,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              tabs: const [
-                Tab(icon: Icon(Icons.folder_outlined), text: 'Projetos'),
-                Tab(icon: Icon(Icons.person_outline), text: 'Perfil'),
-              ],
-            ),
+            bottom: wide ? null : _tabBar(),
           ),
-          body: TabBarView(
-            controller: _tabController,
-            // No Windows/macOS/Linux: evita gesto horizontal que atrapalha com rato;
-            // no Android/iOS mantém swipe entre abas.
-            physics: Theme.of(context).platform == TargetPlatform.android ||
-                    Theme.of(context).platform == TargetPlatform.iOS
-                ? const BouncingScrollPhysics()
-                : const NeverScrollableScrollPhysics(),
-            children: const [
-              ProjectsScreen(),
-              ProfileScreen(embedded: true),
-            ],
-          ),
+          body: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    NavigationRail(
+                      extended: MediaQuery.sizeOf(context).width >= 1100,
+                      selectedIndex: _tabController.index,
+                      onDestinationSelected: (i) => _tabController.animateTo(i),
+                      backgroundColor: const Color(0xFFE8EAF6),
+                      selectedIconTheme: const IconThemeData(color: Color(0xFF1A237E)),
+                      selectedLabelTextStyle: const TextStyle(
+                        color: Color(0xFF1A237E),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      unselectedIconTheme: IconThemeData(color: Colors.grey[700]),
+                      unselectedLabelTextStyle: TextStyle(color: Colors.grey[700]),
+                      labelType: NavigationRailLabelType.all,
+                      destinations: const [
+                        NavigationRailDestination(
+                          icon: Icon(Icons.folder_outlined),
+                          selectedIcon: Icon(Icons.folder),
+                          label: Text('Projetos'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.person_outline),
+                          selectedIcon: Icon(Icons.person),
+                          label: Text('Perfil'),
+                        ),
+                      ],
+                    ),
+                    const VerticalDivider(width: 1, thickness: 1),
+                    Expanded(child: _tabPages()),
+                  ],
+                )
+              : _tabPages(),
         );
       },
     );

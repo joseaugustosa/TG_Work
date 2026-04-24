@@ -17,7 +17,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-  flutter::DartProject project(L"data");
+  // Caminho absoluto: evita falha ao arrancar se o CWD não for a pasta do .exe
+  // (atalhos, Explorador, etc.).
+  flutter::DartProject project(GetFlutterDataDirectory());
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();

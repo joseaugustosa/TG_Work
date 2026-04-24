@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../models/development.dart';
 import '../../services/firestore_service.dart';
+import '../../services/note_recording_storage.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/note_recording_editor.dart';
 import '../../widgets/status_history_sheet.dart';
+import '../../widgets/voice_dictation_text_field.dart';
 import 'development_detail_screen.dart';
 
 class DevelopmentsScreen extends StatelessWidget {
@@ -168,6 +172,7 @@ class DevelopmentsScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: dev?.name ?? '');
     final descController = TextEditingController(text: dev?.description ?? '');
+    final recordingHolder = NoteRecordingHolder(originalUrl: dev?.descriptionRecordingUrl);
     DevelopmentStatus status = dev?.status ?? DevelopmentStatus.emAndamento;
 
     showDialog(
@@ -185,11 +190,15 @@ class DevelopmentsScreen extends StatelessWidget {
                       labelText: 'Nome', border: OutlineInputBorder()),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                VoiceDictationTextField(
                   controller: descController,
-                  decoration: const InputDecoration(
-                      labelText: 'Descrição / introdução', border: OutlineInputBorder()),
+                  labelText: 'Descrição / introdução',
                   maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                NoteRecordingEditor(
+                  holder: recordingHolder,
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<DevelopmentStatus>(
@@ -213,7 +222,7 @@ class DevelopmentsScreen extends StatelessWidget {
                   foregroundColor: Colors.white),
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
-                final d = Development(
+                final base = Development(
                   id: dev?.id ?? '',
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
@@ -225,14 +234,63 @@ class DevelopmentsScreen extends StatelessWidget {
                   createdAt: dev?.createdAt ?? DateTime.now(),
                 );
                 if (dev == null) {
-                  await service.addDevelopment(
-                    d,
+                  final newId = await service.addDevelopment(
+                    base,
                     userId: userId,
                     userName: userName,
                   );
+                  final added = Development(
+                    id: newId,
+                    name: base.name,
+                    description: base.description,
+                    status: base.status,
+                    themeId: base.themeId,
+                    projectId: base.projectId,
+                    createdBy: base.createdBy,
+                    createdByName: base.createdByName,
+                    createdAt: base.createdAt,
+                  );
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) => NoteRecordingStorage.uploadDevelopmentNote(newId, f),
+                  );
+                  if (audioUrl != null) {
+                    await service.updateDevelopment(
+                      Development(
+                        id: newId,
+                        name: added.name,
+                        description: added.description,
+                        descriptionRecordingUrl: audioUrl,
+                        status: added.status,
+                        themeId: added.themeId,
+                        projectId: added.projectId,
+                        createdBy: added.createdBy,
+                        createdByName: added.createdByName,
+                        createdAt: added.createdAt,
+                      ),
+                      oldDev: added,
+                      userId: userId,
+                      userName: userName,
+                    );
+                  }
                 } else {
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) => NoteRecordingStorage.uploadDevelopmentNote(dev.id, f),
+                  );
                   await service.updateDevelopment(
-                    d,
+                    Development(
+                      id: dev.id,
+                      name: base.name,
+                      description: base.description,
+                      descriptionRecordingUrl: audioUrl,
+                      status: base.status,
+                      themeId: base.themeId,
+                      projectId: base.projectId,
+                      createdBy: base.createdBy,
+                      createdByName: base.createdByName,
+                      createdAt: base.createdAt,
+                    ),
                     oldDev: dev,
                     userId: userId,
                     userName: userName,

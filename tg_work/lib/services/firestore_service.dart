@@ -1,14 +1,29 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'note_recording_storage.dart';
 import '../utils/user_display.dart';
 import '../utils/entity_change_summary.dart';
 import '../models/project.dart';
 import '../models/theme_item.dart';
 import '../models/development.dart';
+import '../models/journal_note.dart';
 import '../models/status_change.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  static void _patchDescriptionRecordingUrl(
+    Map<String, dynamic> map,
+    String? oldUrl,
+    String? newUrl,
+  ) {
+    if (oldUrl == newUrl) return;
+    if (newUrl == null) {
+      map['descriptionRecordingUrl'] = FieldValue.delete();
+    } else {
+      map['descriptionRecordingUrl'] = newUrl;
+    }
+  }
 
   // ─── Projects ────────────────────────────────────────────────────────────
 
@@ -21,7 +36,7 @@ class FirestoreService {
             snap.docs.map((d) => Project.fromMap(d.data(), d.id)).toList());
   }
 
-  Future<void> addProject(
+  Future<String> addProject(
     Project project, {
     required String userId,
     required String userName,
@@ -38,6 +53,7 @@ class FirestoreService {
       userName: actorName,
       changedAt: now,
     );
+    return ref.id;
   }
 
   Future<void> updateProject(
@@ -52,6 +68,7 @@ class FirestoreService {
       id: project.id,
       name: project.name,
       description: project.description,
+      descriptionRecordingUrl: project.descriptionRecordingUrl,
       status: project.status,
       createdBy: project.createdBy,
       createdByName: project.createdByName,
@@ -61,7 +78,13 @@ class FirestoreService {
       updatedAt: now,
     );
 
-    await _db.collection('projects').doc(project.id).update(updated.toMap());
+    final map = updated.toMap();
+    _patchDescriptionRecordingUrl(
+      map,
+      oldProject.descriptionRecordingUrl,
+      updated.descriptionRecordingUrl,
+    );
+    await _db.collection('projects').doc(project.id).update(map);
 
     final summary =
         summarizeProjectEdit(oldProject, project) ?? 'Alteração: gravação registada';
@@ -77,6 +100,10 @@ class FirestoreService {
   }
 
   Future<void> deleteProject(String projectId) async {
+    await _deleteAllJournalNotes(JournalNoteParent.project, projectId);
+    final snap = await _db.collection('projects').doc(projectId).get();
+    final url = snap.data()?['descriptionRecordingUrl'] as String?;
+    await NoteRecordingStorage.tryDeleteDownloadUrl(url);
     await _db.collection('projects').doc(projectId).delete();
   }
 
@@ -101,7 +128,7 @@ class FirestoreService {
     });
   }
 
-  Future<void> addTheme(
+  Future<String> addTheme(
     ThemeItem theme, {
     required String userId,
     required String userName,
@@ -118,6 +145,7 @@ class FirestoreService {
       userName: actorName,
       changedAt: now,
     );
+    return ref.id;
   }
 
   Future<void> updateTheme(
@@ -132,6 +160,7 @@ class FirestoreService {
       id: theme.id,
       name: theme.name,
       description: theme.description,
+      descriptionRecordingUrl: theme.descriptionRecordingUrl,
       status: theme.status,
       projectId: theme.projectId,
       createdBy: theme.createdBy,
@@ -142,7 +171,13 @@ class FirestoreService {
       updatedAt: now,
     );
 
-    await _db.collection('themes').doc(theme.id).update(updated.toMap());
+    final map = updated.toMap();
+    _patchDescriptionRecordingUrl(
+      map,
+      oldTheme.descriptionRecordingUrl,
+      updated.descriptionRecordingUrl,
+    );
+    await _db.collection('themes').doc(theme.id).update(map);
 
     final summary =
         summarizeThemeEdit(oldTheme, theme) ?? 'Alteração: gravação registada';
@@ -158,6 +193,10 @@ class FirestoreService {
   }
 
   Future<void> deleteTheme(String themeId) async {
+    await _deleteAllJournalNotes(JournalNoteParent.theme, themeId);
+    final snap = await _db.collection('themes').doc(themeId).get();
+    final url = snap.data()?['descriptionRecordingUrl'] as String?;
+    await NoteRecordingStorage.tryDeleteDownloadUrl(url);
     await _db.collection('themes').doc(themeId).delete();
   }
 
@@ -182,7 +221,7 @@ class FirestoreService {
     });
   }
 
-  Future<void> addDevelopment(
+  Future<String> addDevelopment(
     Development dev, {
     required String userId,
     required String userName,
@@ -199,6 +238,7 @@ class FirestoreService {
       userName: actorName,
       changedAt: now,
     );
+    return ref.id;
   }
 
   Future<void> updateDevelopment(
@@ -213,6 +253,7 @@ class FirestoreService {
       id: dev.id,
       name: dev.name,
       description: dev.description,
+      descriptionRecordingUrl: dev.descriptionRecordingUrl,
       status: dev.status,
       themeId: dev.themeId,
       projectId: dev.projectId,
@@ -224,7 +265,13 @@ class FirestoreService {
       updatedAt: now,
     );
 
-    await _db.collection('developments').doc(dev.id).update(updated.toMap());
+    final map = updated.toMap();
+    _patchDescriptionRecordingUrl(
+      map,
+      oldDev.descriptionRecordingUrl,
+      updated.descriptionRecordingUrl,
+    );
+    await _db.collection('developments').doc(dev.id).update(map);
 
     final summary =
         summarizeDevelopmentEdit(oldDev, dev) ?? 'Alteração: gravação registada';
@@ -240,6 +287,10 @@ class FirestoreService {
   }
 
   Future<void> deleteDevelopment(String devId) async {
+    await _deleteAllJournalNotes(JournalNoteParent.development, devId);
+    final snap = await _db.collection('developments').doc(devId).get();
+    final url = snap.data()?['descriptionRecordingUrl'] as String?;
+    await NoteRecordingStorage.tryDeleteDownloadUrl(url);
     await _db.collection('developments').doc(devId).delete();
   }
 
@@ -247,6 +298,71 @@ class FirestoreService {
     return _db.collection('developments').doc(id).snapshots().map(
           (doc) => doc.exists ? Development.fromMap(doc.data()!, doc.id) : null,
         );
+  }
+
+  // ─── Notas do diário (subcoleção `notes`) ───────────────────────────────
+
+  CollectionReference<Map<String, dynamic>> _journalNotesRef(
+    JournalNoteParent parent,
+    String parentId,
+  ) {
+    return _db
+        .collection(parent.firestoreSegment)
+        .doc(parentId)
+        .collection('notes');
+  }
+
+  Future<void> _deleteAllJournalNotes(JournalNoteParent parent, String parentId) async {
+    final snap = await _journalNotesRef(parent, parentId).get();
+    for (final d in snap.docs) {
+      final url = d.data()['recordingUrl'] as String?;
+      await NoteRecordingStorage.tryDeleteDownloadUrl(url);
+      await d.reference.delete();
+    }
+  }
+
+  /// Sem `orderBy` na query: evita falhas por índice em subcoleções e replica o padrão do histórico.
+  Stream<List<JournalNote>> watchJournalNotes(
+    JournalNoteParent parent,
+    String parentId,
+  ) {
+    return _journalNotesRef(parent, parentId).snapshots().map((s) {
+      final list =
+          s.docs.map((d) => JournalNote.fromMap(d.data(), d.id)).toList();
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    });
+  }
+
+  Future<String> addJournalNote(
+    JournalNoteParent parent,
+    String parentId,
+    JournalNote note,
+  ) async {
+    final ref = await _journalNotesRef(parent, parentId).add(note.toCreateMap());
+    return ref.id;
+  }
+
+  Future<void> updateJournalNoteRecording({
+    required JournalNoteParent parent,
+    required String parentId,
+    required String noteId,
+    required String recordingUrl,
+  }) async {
+    await _journalNotesRef(parent, parentId).doc(noteId).update({
+      'recordingUrl': recordingUrl,
+    });
+  }
+
+  Future<void> deleteJournalNote(
+    JournalNoteParent parent,
+    String parentId,
+    String noteId,
+  ) async {
+    final doc = await _journalNotesRef(parent, parentId).doc(noteId).get();
+    final url = doc.data()?['recordingUrl'] as String?;
+    await NoteRecordingStorage.tryDeleteDownloadUrl(url);
+    await _journalNotesRef(parent, parentId).doc(noteId).delete();
   }
 
   // ─── Histórico (coleção `status_changes`) ───────────────────────────────

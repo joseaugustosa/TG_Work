@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../models/journal_note.dart';
+import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../models/development.dart';
 import '../../models/status_change.dart';
 import '../../services/firestore_service.dart';
+import '../../services/note_recording_storage.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/user_display.dart';
+import '../../widgets/entity_notes_section.dart';
+import '../../widgets/note_recording_editor.dart';
+import '../../widgets/note_recording_playback.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 
 class DevelopmentDetailScreen extends StatelessWidget {
@@ -71,7 +78,12 @@ class DevelopmentDetailScreen extends StatelessWidget {
           ),
           body: dev == null
               ? const Center(child: CircularProgressIndicator())
-              : _DevDetailBody(dev: dev, service: service),
+              : _DevDetailBody(
+                  dev: dev,
+                  service: service,
+                  userId: user?.uid ?? '',
+                  userName: userName,
+                ),
         );
       },
     );
@@ -86,6 +98,7 @@ class DevelopmentDetailScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: dev.name);
     final descController = TextEditingController(text: dev.description);
+    final recordingHolder = NoteRecordingHolder(originalUrl: dev.descriptionRecordingUrl);
     DevelopmentStatus status = dev.status;
 
     showDialog(
@@ -105,13 +118,15 @@ class DevelopmentDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                VoiceDictationTextField(
                   controller: descController,
-                  decoration: const InputDecoration(
-                    labelText: 'Descrição / introdução',
-                    border: OutlineInputBorder(),
-                  ),
+                  labelText: 'Descrição / introdução',
                   maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                NoteRecordingEditor(
+                  holder: recordingHolder,
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<DevelopmentStatus>(
@@ -140,10 +155,15 @@ class DevelopmentDetailScreen extends StatelessWidget {
               ),
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
+                final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                  holder: recordingHolder,
+                  uploadPending: (f) => NoteRecordingStorage.uploadDevelopmentNote(dev.id, f),
+                );
                 final updated = Development(
                   id: dev.id,
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
+                  descriptionRecordingUrl: audioUrl,
                   status: status,
                   themeId: dev.themeId,
                   projectId: dev.projectId,
@@ -171,8 +191,15 @@ class DevelopmentDetailScreen extends StatelessWidget {
 class _DevDetailBody extends StatelessWidget {
   final Development dev;
   final FirestoreService service;
+  final String userId;
+  final String userName;
 
-  const _DevDetailBody({required this.dev, required this.service});
+  const _DevDetailBody({
+    required this.dev,
+    required this.service,
+    required this.userId,
+    required this.userName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -182,6 +209,14 @@ class _DevDetailBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _InfoCard(dev: dev, fmt: fmt),
+        const SizedBox(height: 20),
+        EntityNotesSection(
+          parent: JournalNoteParent.development,
+          parentId: dev.id,
+          service: service,
+          userId: userId,
+          userName: userName,
+        ),
         const SizedBox(height: 24),
         const Text(
           'Histórico de alterações',
@@ -276,6 +311,7 @@ class _InfoCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(dev.description, style: TextStyle(color: Colors.grey[700])),
             ],
+            NoteRecordingPlayback(downloadUrl: dev.descriptionRecordingUrl),
             const SizedBox(height: 10),
             const Divider(height: 1),
             const SizedBox(height: 10),

@@ -59,6 +59,7 @@ class Development {
   final String id;
   final String name;
   final String description;
+  final String? descriptionRecordingUrl;
   final DevelopmentStatus status;
   final String themeId;
   final String projectId;
@@ -73,6 +74,7 @@ class Development {
     required this.id,
     required this.name,
     required this.description,
+    this.descriptionRecordingUrl,
     required this.status,
     required this.themeId,
     required this.projectId,
@@ -89,6 +91,7 @@ class Development {
       id: id,
       name: map['name'] ?? '',
       description: map['description'] ?? '',
+      descriptionRecordingUrl: map['descriptionRecordingUrl'] as String?,
       status: devStatusFromKey(map['status'] ?? ''),
       themeId: map['themeId'] ?? '',
       projectId: map['projectId'] ?? '',
@@ -105,6 +108,7 @@ class Development {
     return {
       'name': name,
       'description': description,
+      if (descriptionRecordingUrl != null) 'descriptionRecordingUrl': descriptionRecordingUrl,
       'status': status.key,
       'themeId': themeId,
       'projectId': projectId,

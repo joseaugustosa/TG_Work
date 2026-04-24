@@ -35,6 +35,8 @@ class Project {
   final String id;
   final String name;
   final String description;
+  /// URL no Firebase Storage (áudio da nota / descrição), opcional.
+  final String? descriptionRecordingUrl;
   final ProjectStatus status;
   final String createdBy;
   final String createdByName;
@@ -47,6 +49,7 @@ class Project {
     required this.id,
     required this.name,
     required this.description,
+    this.descriptionRecordingUrl,
     required this.status,
     required this.createdBy,
     this.createdByName = '',
@@ -61,6 +64,7 @@ class Project {
       id: id,
       name: map['name'] ?? '',
       description: map['description'] ?? '',
+      descriptionRecordingUrl: map['descriptionRecordingUrl'] as String?,
       status: projectStatusFromKey(map['status'] ?? ''),
       createdBy: map['createdBy'] ?? '',
       createdByName: map['createdByName'] ?? '',
@@ -75,6 +79,7 @@ class Project {
     return {
       'name': name,
       'description': description,
+      if (descriptionRecordingUrl != null) 'descriptionRecordingUrl': descriptionRecordingUrl,
       'status': status.key,
       'createdBy': createdBy,
       'createdByName': createdByName,

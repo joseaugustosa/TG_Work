@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../models/journal_note.dart';
+import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../models/theme_item.dart';
 import '../../models/status_change.dart';
 import '../../services/firestore_service.dart';
+import '../../services/note_recording_storage.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/user_display.dart';
+import '../../widgets/entity_notes_section.dart';
+import '../../widgets/note_recording_editor.dart';
+import '../../widgets/note_recording_playback.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/history_entry_tile.dart';
+import '../../widgets/voice_dictation_text_field.dart';
 import '../developments/developments_screen.dart';
 
 class ThemeDetailScreen extends StatelessWidget {
@@ -72,6 +79,8 @@ class ThemeDetailScreen extends StatelessWidget {
                   theme: theme,
                   project: project,
                   service: service,
+                  userId: user?.uid ?? '',
+                  userName: userName,
                 ),
         );
       },
@@ -87,6 +96,7 @@ class ThemeDetailScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: theme.name);
     final descController = TextEditingController(text: theme.description);
+    final recordingHolder = NoteRecordingHolder(originalUrl: theme.descriptionRecordingUrl);
     ThemeStatus status = theme.status;
 
     showDialog(
@@ -106,13 +116,15 @@ class ThemeDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                VoiceDictationTextField(
                   controller: descController,
-                  decoration: const InputDecoration(
-                    labelText: 'Descrição / introdução',
-                    border: OutlineInputBorder(),
-                  ),
+                  labelText: 'Descrição / introdução',
                   maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                NoteRecordingEditor(
+                  holder: recordingHolder,
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ThemeStatus>(
@@ -141,10 +153,15 @@ class ThemeDetailScreen extends StatelessWidget {
               ),
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
+                final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                  holder: recordingHolder,
+                  uploadPending: (f) => NoteRecordingStorage.uploadThemeNote(theme.id, f),
+                );
                 final updated = ThemeItem(
                   id: theme.id,
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
+                  descriptionRecordingUrl: audioUrl,
                   status: status,
                   projectId: theme.projectId,
                   createdBy: theme.createdBy,
@@ -172,11 +189,15 @@ class _ThemeDetailBody extends StatelessWidget {
   final ThemeItem theme;
   final Project project;
   final FirestoreService service;
+  final String userId;
+  final String userName;
 
   const _ThemeDetailBody({
     required this.theme,
     required this.project,
     required this.service,
+    required this.userId,
+    required this.userName,
   });
 
   @override
@@ -187,6 +208,14 @@ class _ThemeDetailBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _InfoCard(theme: theme, fmt: fmt),
+        const SizedBox(height: 20),
+        EntityNotesSection(
+          parent: JournalNoteParent.theme,
+          parentId: theme.id,
+          service: service,
+          userId: userId,
+          userName: userName,
+        ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           style: OutlinedButton.styleFrom(
@@ -298,6 +327,7 @@ class _InfoCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(theme.description, style: TextStyle(color: Colors.grey[700])),
             ],
+            NoteRecordingPlayback(downloadUrl: theme.descriptionRecordingUrl),
             const SizedBox(height: 10),
             const Divider(height: 1),
             const SizedBox(height: 10),

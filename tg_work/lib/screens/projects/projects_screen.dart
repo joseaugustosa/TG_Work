@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../services/firestore_service.dart';
+import '../../services/note_recording_storage.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/note_recording_editor.dart';
 import '../../widgets/status_history_sheet.dart';
+import '../../widgets/voice_dictation_text_field.dart';
 import 'project_detail_screen.dart';
 
 class ProjectsScreen extends StatelessWidget {
@@ -157,6 +161,7 @@ class ProjectsScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: project?.name ?? '');
     final descController = TextEditingController(text: project?.description ?? '');
+    final recordingHolder = NoteRecordingHolder(originalUrl: project?.descriptionRecordingUrl);
     ProjectStatus status = project?.status ?? ProjectStatus.exequivel;
 
     showDialog(
@@ -174,11 +179,15 @@ class ProjectsScreen extends StatelessWidget {
                       labelText: 'Nome do projeto', border: OutlineInputBorder()),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                VoiceDictationTextField(
                   controller: descController,
-                  decoration: const InputDecoration(
-                      labelText: 'Descrição / introdução', border: OutlineInputBorder()),
+                  labelText: 'Descrição / introdução',
                   maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                NoteRecordingEditor(
+                  holder: recordingHolder,
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ProjectStatus>(
@@ -202,7 +211,7 @@ class ProjectsScreen extends StatelessWidget {
                   foregroundColor: Colors.white),
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
-                final p = Project(
+                final base = Project(
                   id: project?.id ?? '',
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
@@ -212,14 +221,57 @@ class ProjectsScreen extends StatelessWidget {
                   createdAt: project?.createdAt ?? DateTime.now(),
                 );
                 if (project == null) {
-                  await service.addProject(
-                    p,
+                  final newId = await service.addProject(
+                    base,
                     userId: userId,
                     userName: userName,
                   );
+                  final added = Project(
+                    id: newId,
+                    name: base.name,
+                    description: base.description,
+                    status: base.status,
+                    createdBy: base.createdBy,
+                    createdByName: base.createdByName,
+                    createdAt: base.createdAt,
+                  );
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) => NoteRecordingStorage.uploadProjectNote(newId, f),
+                  );
+                  if (audioUrl != null) {
+                    await service.updateProject(
+                      Project(
+                        id: newId,
+                        name: added.name,
+                        description: added.description,
+                        descriptionRecordingUrl: audioUrl,
+                        status: added.status,
+                        createdBy: added.createdBy,
+                        createdByName: added.createdByName,
+                        createdAt: added.createdAt,
+                      ),
+                      oldProject: added,
+                      userId: userId,
+                      userName: userName,
+                    );
+                  }
                 } else {
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) => NoteRecordingStorage.uploadProjectNote(project.id, f),
+                  );
                   await service.updateProject(
-                    p,
+                    Project(
+                      id: project.id,
+                      name: base.name,
+                      description: base.description,
+                      descriptionRecordingUrl: audioUrl,
+                      status: base.status,
+                      createdBy: base.createdBy,
+                      createdByName: base.createdByName,
+                      createdAt: base.createdAt,
+                    ),
                     oldProject: project,
                     userId: userId,
                     userName: userName,

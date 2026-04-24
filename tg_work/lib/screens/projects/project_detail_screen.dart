@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../models/status_change.dart';
 import '../../services/firestore_service.dart';
+import '../../services/note_recording_storage.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/status_badge.dart';
+import '../../models/journal_note.dart';
+import '../../widgets/entity_notes_section.dart';
+import '../../widgets/note_recording_editor.dart';
+import '../../widgets/note_recording_playback.dart';
+import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../themes/themes_screen.dart';
 
@@ -76,6 +83,7 @@ class ProjectDetailScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: project.name);
     final descController = TextEditingController(text: project.description);
+    final recordingHolder = NoteRecordingHolder(originalUrl: project.descriptionRecordingUrl);
     ProjectStatus status = project.status;
 
     showDialog(
@@ -95,13 +103,15 @@ class ProjectDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                VoiceDictationTextField(
                   controller: descController,
-                  decoration: const InputDecoration(
-                    labelText: 'Descrição / introdução',
-                    border: OutlineInputBorder(),
-                  ),
+                  labelText: 'Descrição / introdução',
                   maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                NoteRecordingEditor(
+                  holder: recordingHolder,
+                  onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ProjectStatus>(
@@ -130,10 +140,15 @@ class ProjectDetailScreen extends StatelessWidget {
               ),
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
+                final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                  holder: recordingHolder,
+                  uploadPending: (f) => NoteRecordingStorage.uploadProjectNote(project.id, f),
+                );
                 final updated = Project(
                   id: project.id,
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
+                  descriptionRecordingUrl: audioUrl,
                   status: status,
                   createdBy: project.createdBy,
                   createdByName: project.createdByName,
@@ -177,6 +192,14 @@ class _ProjectDetailBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _InfoCard(project: project, fmt: fmt),
+        const SizedBox(height: 20),
+        EntityNotesSection(
+          parent: JournalNoteParent.project,
+          parentId: project.id,
+          service: service,
+          userId: userId,
+          userName: userName,
+        ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           style: OutlinedButton.styleFrom(
@@ -290,6 +313,7 @@ class _InfoCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(project.description, style: TextStyle(color: Colors.grey[700])),
             ],
+            NoteRecordingPlayback(downloadUrl: project.descriptionRecordingUrl),
             const SizedBox(height: 10),
             const Divider(height: 1),
             const SizedBox(height: 10),

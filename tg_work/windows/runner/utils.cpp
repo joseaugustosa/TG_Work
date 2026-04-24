@@ -6,6 +6,7 @@
 #include <windows.h>
 
 #include <iostream>
+#include <string>
 
 void CreateAndAttachConsole() {
   if (::AllocConsole()) {
@@ -62,4 +63,21 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string) {
     return std::string();
   }
   return utf8_string;
+}
+
+std::wstring GetFlutterDataDirectory() {
+  wchar_t path[MAX_PATH] = {};
+  const DWORD r = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
+  if (r == 0) {
+    return L"data";
+  }
+  std::wstring full(path);
+  size_t pos = full.find_last_of(L'\\');
+  if (pos == std::wstring::npos) {
+    pos = full.find_last_of(L'/');
+  }
+  if (pos == std::wstring::npos) {
+    return L"data";
+  }
+  return full.substr(0, pos + 1) + L"data";
 }
