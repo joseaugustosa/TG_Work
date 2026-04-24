@@ -33,6 +33,13 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# WiX (MSI) — ficheiro gerado; gera de novo com msi/build_msi.ps1
+/msi/*.wixpdb
+/msi/cab1.cab
+/msi/TgWork-1.0.0.msi
+/msi/decompiled.wxs
+/msi/decompile_out
+
 # Symbolication related
 app.*.symbols
 
