@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 import '../../utils/user_display.dart';
+import '../../widgets/profile_billing_section.dart';
 
 /// Ver e alterar o nome no perfil Firebase. O email é mostrado; alterar email implica fluxos extra no Firebase.
 /// Com [embedded] true (ex.: aba no `HomeShellScreen`), não mostra AppBar próprio.
@@ -161,6 +162,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       : const Text('Guardar nome'),
                 ),
               ),
+              const SizedBox(height: 28),
+              const ProfileBillingSection(),
             ],
           ),
         ),

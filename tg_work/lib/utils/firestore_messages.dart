@@ -28,3 +28,24 @@ String firestoreJournalNotesErrorHint(Object? error) {
   }
   return raw.isEmpty ? 'Erro desconhecido.' : raw;
 }
+
+/// Erros ao carregar sessões IDE (`user_ide_session_logs`).
+String firestoreIdeSessionsErrorHint(Object? error) {
+  final raw = error?.toString() ?? '';
+  final s = raw.toLowerCase();
+  if (s.contains('permission-denied') || s.contains('permission_denied')) {
+    return 'Sem permissão para ler sessões IDE. Na Consola Firebase → Firestore → Regras, '
+        'confirma o bloco `user_ide_session_logs` em `tg_work/firestore.rules` e faz '
+        '`firebase deploy --only firestore:rules`.';
+  }
+  if (s.contains('failed-precondition') ||
+      s.contains('requires an index') ||
+      s.contains('indexes')) {
+    return 'O Firestore precisa de um índice para esta consulta (userId + closedAt).\n'
+        'No projecto há `tg_work/firestore.indexes.json`. Na pasta `tg_work` corre:\n'
+        '  firebase deploy --only firestore:indexes\n'
+        'Ou usa o link que a mensagem de erro do Firebase pode indicar para criar o índice.\n'
+        'Detalhe técnico: $raw';
+  }
+  return raw.isEmpty ? 'Erro desconhecido.' : raw;
+}

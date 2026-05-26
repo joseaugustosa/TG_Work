@@ -8,23 +8,46 @@ import '../../models/development.dart';
 import '../../services/firestore_service.dart';
 import '../../services/note_recording_storage.dart';
 import '../../utils/user_display.dart';
+import '../../utils/windows_firestore_compat.dart';
+import '../../utils/kanban_time_summary.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/status_history_sheet.dart';
+import '../../widgets/status_kanban_board.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import 'development_detail_screen.dart';
 
-class DevelopmentsScreen extends StatelessWidget {
+class DevelopmentsScreen extends StatefulWidget {
   final ThemeItem theme;
   final Project project;
 
   const DevelopmentsScreen({super.key, required this.theme, required this.project});
 
   @override
+  State<DevelopmentsScreen> createState() => _DevelopmentsScreenState();
+}
+
+class _DevelopmentsScreenState extends State<DevelopmentsScreen> {
+  bool _kanban = false;
+
+  late final FirestoreService _service;
+  late final Stream<List<Development>> _devsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = FirestoreService();
+    _devsStream = _service.getDevelopments(widget.theme.id);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final firestoreService = FirestoreService();
+    final theme = widget.theme;
+    final project = widget.project;
     final user = FirebaseAuth.instance.currentUser;
     final userName = firebaseUserDisplayLabel(user);
+    final showKanbanToggle = !firestoreWorkloadReduceOnDesktop;
+    final useKanbanBoard = showKanbanToggle && _kanban;
 
     return Scaffold(
       appBar: AppBar(
@@ -38,9 +61,17 @@ class DevelopmentsScreen extends StatelessWidget {
         ),
         backgroundColor: const Color(0xFF1A237E),
         foregroundColor: Colors.white,
+        actions: [
+          if (showKanbanToggle)
+            IconButton(
+              icon: Icon(_kanban ? Icons.view_list_outlined : Icons.view_kanban_outlined),
+              tooltip: _kanban ? 'Ver lista' : 'Ver Kanban',
+              onPressed: () => setState(() => _kanban = !_kanban),
+            ),
+        ],
       ),
       body: StreamBuilder<List<Development>>(
-        stream: firestoreService.getDevelopments(theme.id),
+        stream: _devsStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -60,6 +91,153 @@ class DevelopmentsScreen extends StatelessWidget {
                   ),
                 ],
               ),
+            );
+          }
+          if (useKanbanBoard) {
+            return StatusKanbanBoard<Development, DevelopmentStatus>(
+              columns: DevelopmentStatus.values,
+              labelOf: (s) => s.label,
+              colorOf: devStatusColor,
+              statusOf: (d) => d.status,
+              items: devs,
+              columnWidth: 248,
+              onItemMoved: (dev, status) async {
+                if (dev.status == status) return;
+                await _service.updateDevelopment(
+                  Development(
+                    id: dev.id,
+                    name: dev.name,
+                    description: dev.description,
+                    descriptionRecordingUrl: dev.descriptionRecordingUrl,
+                    status: status,
+                    themeId: dev.themeId,
+                    projectId: dev.projectId,
+                    createdBy: dev.createdBy,
+                    createdByName: dev.createdByName,
+                    createdAt: dev.createdAt,
+                  ),
+                  oldDev: dev,
+                  userId: user?.uid ?? '',
+                  userName: userName,
+                );
+              },
+              cardBuilder: (context, dev) {
+                return Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DevelopmentDetailScreen(
+                          devId: dev.id,
+                          devName: dev.name,
+                          theme: theme,
+                          project: project,
+                        ),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor:
+                                    devStatusColor(dev.status).withValues(alpha: 0.15),
+                                child: Icon(Icons.code, color: devStatusColor(dev.status)),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  dev.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              PopupMenuButton<String>(
+                                onSelected: (value) async {
+                                  if (value == 'edit') {
+                                    _showDevDialog(
+                                      context,
+                                      _service,
+                                      dev: dev,
+                                      userId: user?.uid ?? '',
+                                      userName: userName,
+                                    );
+                                  } else if (value == 'history') {
+                                    StatusHistorySheet.show(
+                                      context,
+                                      entityId: dev.id,
+                                      entityName: dev.name,
+                                    );
+                                  } else if (value == 'delete') {
+                                    await _service.deleteDevelopment(dev.id);
+                                  }
+                                },
+                                itemBuilder: (_) => [
+                                  const PopupMenuItem(value: 'edit', child: Text('Editar')),
+                                  const PopupMenuItem(
+                                    value: 'history',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.history, size: 18, color: Colors.grey),
+                                        SizedBox(width: 8),
+                                        Text('Histórico'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                                ],
+                              ),
+                            ],
+                          ),
+                          if (dev.description.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              dev.description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          StatusBadge(
+                            label: dev.status.label,
+                            color: devStatusColor(dev.status),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            kanbanTimeSummaryPt(
+                              createdAt: dev.createdAt,
+                              updatedAt: dev.updatedAt,
+                              isDone: dev.status == DevelopmentStatus.feito ||
+                                  dev.status == DevelopmentStatus.semEfeito ||
+                                  dev.status == DevelopmentStatus.bom ||
+                                  dev.status == DevelopmentStatus.podeMelhorar,
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                              height: 1.25,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             );
           }
           return ListView.builder(
@@ -100,7 +278,7 @@ class DevelopmentsScreen extends StatelessWidget {
                           if (value == 'edit') {
                             _showDevDialog(
                               context,
-                              firestoreService,
+                              _service,
                               dev: dev,
                               userId: user?.uid ?? '',
                               userName: userName,
@@ -112,7 +290,7 @@ class DevelopmentsScreen extends StatelessWidget {
                               entityName: dev.name,
                             );
                           } else if (value == 'delete') {
-                            await firestoreService.deleteDevelopment(dev.id);
+                            await _service.deleteDevelopment(dev.id);
                           }
                         },
                         itemBuilder: (_) => [
@@ -154,7 +332,7 @@ class DevelopmentsScreen extends StatelessWidget {
         foregroundColor: Colors.white,
         onPressed: () => _showDevDialog(
           context,
-          firestoreService,
+          _service,
           userId: user?.uid ?? '',
           userName: userName,
         ),
@@ -201,14 +379,24 @@ class DevelopmentsScreen extends StatelessWidget {
                   onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<DevelopmentStatus>(
-                  initialValue: status,
+                InputDecorator(
                   decoration: const InputDecoration(
-                      labelText: 'Estado', border: OutlineInputBorder()),
-                  items: DevelopmentStatus.values
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                      .toList(),
-                  onChanged: (v) => setState(() => status = v!),
+                    labelText: 'Estado',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<DevelopmentStatus>(
+                      isExpanded: true,
+                      borderRadius: BorderRadius.circular(4),
+                      value: status,
+                      items: DevelopmentStatus.values
+                          .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => status = v);
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -227,8 +415,8 @@ class DevelopmentsScreen extends StatelessWidget {
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
                   status: status,
-                  themeId: theme.id,
-                  projectId: project.id,
+                  themeId: widget.theme.id,
+                  projectId: widget.project.id,
                   createdBy: dev?.createdBy ?? userId,
                   createdByName: dev?.createdByName ?? userName,
                   createdAt: dev?.createdAt ?? DateTime.now(),
@@ -303,7 +491,10 @@ class DevelopmentsScreen extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      nameController.dispose();
+      descController.dispose();
+    });
   }
 }
 

@@ -1,12 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum ProjectStatus { exequivel, naoExequivel }
+/// Ordem: fluxo típico no Kanban (exequível → em execução → concluído | não exequível).
+enum ProjectStatus { exequivel, emExecucao, concluido, naoExequivel }
 
 extension ProjectStatusExtension on ProjectStatus {
   String get label {
     switch (this) {
       case ProjectStatus.exequivel:
         return 'Exequível';
+      case ProjectStatus.emExecucao:
+        return 'Em execução';
+      case ProjectStatus.concluido:
+        return 'Concluído';
       case ProjectStatus.naoExequivel:
         return 'Não Exequível';
     }
@@ -16,6 +21,10 @@ extension ProjectStatusExtension on ProjectStatus {
     switch (this) {
       case ProjectStatus.exequivel:
         return 'exequivel';
+      case ProjectStatus.emExecucao:
+        return 'emExecucao';
+      case ProjectStatus.concluido:
+        return 'concluido';
       case ProjectStatus.naoExequivel:
         return 'naoExequivel';
     }
@@ -24,6 +33,10 @@ extension ProjectStatusExtension on ProjectStatus {
 
 ProjectStatus projectStatusFromKey(String key) {
   switch (key) {
+    case 'emExecucao':
+      return ProjectStatus.emExecucao;
+    case 'concluido':
+      return ProjectStatus.concluido;
     case 'naoExequivel':
       return ProjectStatus.naoExequivel;
     default:
@@ -45,6 +58,9 @@ class Project {
   final String? updatedByName;
   final DateTime? updatedAt;
 
+  /// Pasta (ou `.code-workspace`) no PC onde abres este projeto para a extensão IDE contabilizar sessão por abrir/fecho.
+  final String ideCountingFolderFsPath;
+
   Project({
     required this.id,
     required this.name,
@@ -57,9 +73,13 @@ class Project {
     this.updatedBy,
     this.updatedByName,
     this.updatedAt,
+    this.ideCountingFolderFsPath = '',
   });
 
   factory Project.fromMap(Map<String, dynamic> map, String id) {
+    final rawIde = map['ideCountingFolderFsPath'];
+    final ide =
+        rawIde is String ? rawIde.trim() : (rawIde is num ? '$rawIde' : '').trim();
     return Project(
       id: id,
       name: map['name'] ?? '',
@@ -72,6 +92,7 @@ class Project {
       updatedBy: map['updatedBy'],
       updatedByName: map['updatedByName'],
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
+      ideCountingFolderFsPath: ide,
     );
   }
 
@@ -87,6 +108,8 @@ class Project {
       if (updatedBy != null) 'updatedBy': updatedBy,
       if (updatedByName != null) 'updatedByName': updatedByName,
       if (updatedAt != null) 'updatedAt': updatedAt,
+      if (ideCountingFolderFsPath.trim().isNotEmpty)
+        'ideCountingFolderFsPath': ideCountingFolderFsPath.trim(),
     };
   }
 }

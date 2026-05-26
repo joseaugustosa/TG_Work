@@ -1,0 +1,106 @@
+{
+  "name": "tg-work-ide-session",
+  "displayName": "TG Work IDE Session",
+  "description": "Tempo IDE: stub Firestore ao abrir workspace, PATCH ao fechar; opcional Firebase TG Work.",
+  "publisher": "tgwork",
+  "version": "0.2.7",
+  "private": true,
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tgWorkIde.showOutput",
+        "title": "TG Work IDE: abrir registo de diagnóstico..."
+      },
+      {
+        "command": "tgWorkIde.showSessionTotals",
+        "title": "TG Work IDE: tempo, sessões e dias por projeto (PC)..."
+      },
+      {
+        "command": "tgWorkIde.firebaseLoginHelp",
+        "title": "TG Work IDE: ajuda login Firebase..."
+      },
+      {
+        "command": "tgWorkIde.signIn",
+        "title": "TG Work IDE: iniciar sessão Firebase..."
+      },
+      {
+        "command": "tgWorkIde.signOut",
+        "title": "TG Work IDE: terminar sessão"
+      },
+      {
+        "command": "tgWorkIde.selectCountingFolder",
+        "title": "TG Work IDE: escolher pasta para contagem de tempo"
+      },
+      {
+        "command": "tgWorkIde.flushSession",
+        "title": "TG Work IDE: gravar sessão agora (PC + Firestore)"
+      },
+      {
+        "command": "tgWorkIde.openLocalLogs",
+        "title": "TG Work IDE: abrir pasta dos registos (PC)"
+      }
+    ],
+    "configuration": {
+      "title": "TG Work IDE Session",
+      "properties": {
+        "tgWorkIde.firebaseApiKey": {
+          "type": "string",
+          "default": "AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw",
+          "description": "Web API Key (mesma utilizada pela app TG Work em Windows/Web, firebase_options.dart)."
+        },
+        "tgWorkIde.firebaseProjectId": {
+          "type": "string",
+          "default": "tg-work-2026"
+        },
+        "tgWorkIde.minSessionSeconds": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 15,
+          "description": "Sessões mais curtas que isto são ignoradas (ruídos ao abrir e fechar rápido)."
+        },
+        "tgWorkIde.syncToFirestore": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quando verdadeiro, envia cada sessão fechada para o Firestore (Agenda IDE na app). Requer comando TG Work IDE: iniciar sessão Firebase."
+        },
+        "tgWorkIde.autoResolveFirestoreProject": {
+          "type": "boolean",
+          "default": true,
+          "description": "Com login Firebase, tentar descobrir o ID do projeto TG Work no Firestore sem .tgwork/project.json."
+        },
+        "tgWorkIde.onlyShortcutWorkspace": {
+          "type": "boolean",
+          "default": false,
+          "description": "true: só conta com .code-workspace ou .cursor-workspace aberto. false (defeito): conta também ao usar Open Folder."
+        },
+        "tgWorkIde.countingFolderFsPath": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Caminho absoluto de uma pasta raiz deste workspace para contar tempo e ler .tgwork/project.json (prioridade máxima)."
+        },
+        "tgWorkIde.heartbeatIntervalMinutes": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "A cada quantos minutos a extensão actualiza a duração no Firestore enquanto a janela está aberta (heartbeat). Garante que mesmo que o IDE feche abruptamente, o registo na nuvem tem o tempo quase certo. Defeito: 3 minutos."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.5.4"
+  }
+}

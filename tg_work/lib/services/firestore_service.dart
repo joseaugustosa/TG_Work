@@ -8,6 +8,93 @@ import '../models/theme_item.dart';
 import '../models/development.dart';
 import '../models/journal_note.dart';
 import '../models/status_change.dart';
+import '../models/user_billing_settings.dart';
+import '../models/active_work_clock.dart';
+import '../models/ide_schedule_card.dart';
+import '../models/ide_schedule_lane.dart';
+import '../models/ide_session_log.dart';
+import '../models/ide_project_report_snapshot.dart';
+import '../utils/ide_project_session_summary.dart';
+import '../utils/ide_project_report_totals.dart';
+
+/// IDs legacy em `user_project_work`: `uid::projectId`.
+/// No cliente Windows apareceram quedas ao subscrever documentos com `:` no ID.
+/// Novos IDs: `uid__wk__projectId`. Migrámos cada par utilizador/projeto uma vez.
+final Map<String, Future<void>> _userProjectWorkMergeFutures = {};
+
+Future<void> _ensureUserProjectWorkIdMigratedOnce(
+  FirebaseFirestore db,
+  String userId,
+  String projectId,
+) {
+  final key = '$userId|$projectId';
+  return _userProjectWorkMergeFutures[key] ??=
+      _mergeLegacyUserProjectWorkIntoModern(db, userId, projectId);
+}
+
+Future<void> _mergeLegacyUserProjectWorkIntoModern(
+  FirebaseFirestore db,
+  String userId,
+  String projectId,
+) async {
+  final legacyRef = db.collection('user_project_work').doc('$userId::$projectId');
+  final modernRef =
+      db.collection('user_project_work').doc('${userId}__wk__$projectId');
+
+  final legacySnap = await legacyRef.get();
+  if (!legacySnap.exists) return;
+
+  int readSecs(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
+  final legSecs = readSecs(legacySnap.data()?['totalSeconds']);
+  final newSnap = await modernRef.get();
+  try {
+    if (!newSnap.exists) {
+      if (legSecs > 0) {
+        await modernRef.set(
+          {
+            'userId': userId,
+            'projectId': projectId,
+            'totalSeconds': legSecs,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    } else {
+      final neuSecs = readSecs(newSnap.data()?['totalSeconds']);
+      final delta = legSecs - neuSecs;
+      if (delta > 0) {
+        await modernRef.set(
+          {
+            'userId': userId,
+            'projectId': projectId,
+            'totalSeconds': FieldValue.increment(delta),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+    await legacyRef.delete();
+  } catch (e, st) {
+    debugPrint('TG_Work: migrate user_project_work $userId::$projectId -> __wk__: $e\n$st');
+  }
+}
+
+/// Chama esta função antes de devolver snapshots do doc moderno para evitar dois totais dispersos.
+Future<void> _prepareUserProjectWorkStream(
+  FirebaseFirestore db,
+  String userId,
+  String projectId,
+) =>
+    _ensureUserProjectWorkIdMigratedOnce(db, userId, projectId).catchError(
+      (e, st) => debugPrint('TG_Work: prepare user_project_work stream: $e\n$st'),
+    );
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -22,6 +109,19 @@ class FirestoreService {
       map['descriptionRecordingUrl'] = FieldValue.delete();
     } else {
       map['descriptionRecordingUrl'] = newUrl;
+    }
+  }
+
+  static void _patchIdeCountingFolderFsPath(
+    Map<String, dynamic> map,
+    Project oldProject,
+    Project updated,
+  ) {
+    final prev = oldProject.ideCountingFolderFsPath.trim();
+    final next = updated.ideCountingFolderFsPath.trim();
+    if (prev == next) return;
+    if (next.isEmpty) {
+      map['ideCountingFolderFsPath'] = FieldValue.delete();
     }
   }
 
@@ -70,6 +170,7 @@ class FirestoreService {
       description: project.description,
       descriptionRecordingUrl: project.descriptionRecordingUrl,
       status: project.status,
+      ideCountingFolderFsPath: project.ideCountingFolderFsPath,
       createdBy: project.createdBy,
       createdByName: project.createdByName,
       createdAt: project.createdAt,
@@ -84,10 +185,11 @@ class FirestoreService {
       oldProject.descriptionRecordingUrl,
       updated.descriptionRecordingUrl,
     );
+    _patchIdeCountingFolderFsPath(map, oldProject, updated);
     await _db.collection('projects').doc(project.id).update(map);
 
     final summary =
-        summarizeProjectEdit(oldProject, project) ?? 'Alteração: gravação registada';
+        summarizeProjectEdit(oldProject, updated) ?? 'Alteração: gravação registada';
     await _logAuditEntry(
       entityType: 'project',
       entityId: project.id,
@@ -367,6 +469,30 @@ class FirestoreService {
 
   // ─── Histórico (coleção `status_changes`) ───────────────────────────────
 
+  /// Para cada projeto, devolve a data mais antiga em que o estado passou para
+  /// 'emExecucao'. O período Kanban só conta a partir dessa data — enquanto em
+  /// 'Exequível' o projeto está em espera e não é contabilizado como trabalho.
+  Stream<Map<String, DateTime>> watchProjectFirstExecutionDateMap() {
+    return _db
+        .collection('status_changes')
+        .where('entityType', isEqualTo: 'project')
+        .where('newStatusKey', isEqualTo: 'emExecucao')
+        .snapshots()
+        .map((snap) {
+      final result = <String, DateTime>{};
+      for (final d in snap.docs) {
+        try {
+          final sc = StatusChange.fromMap(d.data(), d.id);
+          final existing = result[sc.entityId];
+          if (existing == null || sc.changedAt.isBefore(existing)) {
+            result[sc.entityId] = sc.changedAt;
+          }
+        } catch (_) {}
+      }
+      return result;
+    });
+  }
+
   /// Histórico por entidade. Ordenação em memória para não exigir índice composto
   /// Firestore (`where` + `orderBy` em campos diferentes falha sem índice).
   Stream<List<StatusChange>> getStatusHistory(String entityId) {
@@ -387,6 +513,566 @@ class FirestoreService {
       list.sort((a, b) => b.changedAt.compareTo(a.changedAt));
       return list;
     });
+  }
+
+  // ─── Preferências de faturação (documento `user_settings/{userId}`) ─────
+
+  DocumentReference<Map<String, dynamic>> _userSettingsRef(String userId) {
+    return _db.collection('user_settings').doc(userId);
+  }
+
+  Stream<UserBillingSettings> watchUserBillingSettings(String userId) {
+    return _userSettingsRef(userId).snapshots().map(
+          (s) => UserBillingSettings.fromMap(s.data()),
+        );
+  }
+
+  Future<void> setUserBillingSettings(
+    String userId,
+    UserBillingSettings settings,
+  ) async {
+    final data = <String, dynamic>{};
+    if (settings.billingProjectId != null &&
+        settings.billingProjectId!.trim().isNotEmpty) {
+      data['billingProjectId'] = settings.billingProjectId!.trim();
+    } else {
+      data['billingProjectId'] = FieldValue.delete();
+    }
+    if (settings.hourlyRateEuros != null && settings.hourlyRateEuros! > 0) {
+      data['hourlyRateEuros'] = settings.hourlyRateEuros;
+    } else {
+      data['hourlyRateEuros'] = FieldValue.delete();
+    }
+    await _userSettingsRef(userId).set(data, SetOptions(merge: true));
+  }
+
+  /// Chaves `tg:{id}` ou `ws:{workspace}` ocultas da Agenda IDE.
+  Stream<Set<String>> watchIdeAgendaExcludedKeys(String userId) {
+    if (userId.isEmpty) return Stream.value({});
+    return _userSettingsRef(userId).snapshots().map((s) {
+      final raw = s.data()?['ideAgendaExcludedAggregateKeys'];
+      if (raw is! List) return <String>{};
+      return raw
+          .map((e) => e is String ? e.trim() : e.toString().trim())
+          .where((k) => k.isNotEmpty)
+          .toSet();
+    });
+  }
+
+  Future<void> addIdeAgendaExcludedKeys(
+    String userId,
+    Iterable<String> aggregateKeys,
+  ) async {
+    if (userId.isEmpty) return;
+    final keys = aggregateKeys.map((k) => k.trim()).where((k) => k.isNotEmpty).toList();
+    if (keys.isEmpty) return;
+    await _userSettingsRef(userId).set(
+      {'ideAgendaExcludedAggregateKeys': FieldValue.arrayUnion(keys)},
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Remove da Agenda IDE por nome de projeto TG Work ou workspace IDE.
+  Future<void> removeFromIdeAgendaByDisplayName({
+    required String userId,
+    required String displayName,
+    required List<Project> projects,
+    required List<IdeScheduleCard> cards,
+  }) async {
+    if (userId.isEmpty) return;
+    final name = displayName.trim();
+    if (name.isEmpty) return;
+
+    final keys = <String>{'ws:$name'};
+    for (final p in projects) {
+      if (p.name.trim().toLowerCase() == name.toLowerCase()) {
+        keys.add('tg:${p.id}');
+      }
+    }
+
+    for (final c in cards) {
+      final matchTitle = c.title.trim().toLowerCase() == name.toLowerCase();
+      final matchKey = c.aggregateKey.isNotEmpty && keys.contains(c.aggregateKey);
+      final matchPid = c.tgProjectId.isNotEmpty && keys.contains('tg:${c.tgProjectId}');
+      if (matchTitle || matchKey || matchPid) {
+        if (c.aggregateKey.isNotEmpty) keys.add(c.aggregateKey);
+        await deleteIdeScheduleCard(userId: userId, cardId: c.id);
+      }
+    }
+
+    await addIdeAgendaExcludedKeys(userId, keys);
+  }
+
+  // ─── Tempo de trabalho (relógio por utilizador + total por projeto) ───────
+
+  Stream<ActiveWorkClock?> watchActiveWorkClock(String userId) {
+    if (userId.isEmpty) return Stream.value(null);
+    return _db.collection('user_work_clock').doc(userId).snapshots().map((s) {
+      if (!s.exists) return null;
+      final d = s.data()!;
+      final pid = d['activeProjectId'] as String?;
+      final ts = d['segmentStartedAt'] as Timestamp?;
+      if (pid == null || pid.trim().isEmpty || ts == null) return null;
+      return ActiveWorkClock(projectId: pid.trim(), segmentStartedAt: ts.toDate());
+    });
+  }
+
+  /// Devolve um stream com o mapa {projectId -> totalSeconds} para todos os
+  /// projectos com tempo registado pelo relógio do Kanban.
+  Stream<Map<String, int>> watchAllProjectWorkedSeconds(String userId) {
+    if (userId.isEmpty) return Stream.value({});
+    return _db
+        .collection('user_project_work')
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map((snap) {
+      final result = <String, int>{};
+      for (final doc in snap.docs) {
+        final pid = doc.data()['projectId'] as String?;
+        if (pid == null || pid.trim().isEmpty) continue;
+        final v = doc.data()['totalSeconds'];
+        final secs = v is int ? v : (v is num ? v.toInt() : 0);
+        result[pid.trim()] = secs;
+      }
+      return result;
+    });
+  }
+
+  Stream<int> watchProjectWorkedSeconds(String userId, String projectId) {
+    if (userId.isEmpty || projectId.isEmpty) return Stream.value(0);
+    final modernRef =
+        _db.collection('user_project_work').doc('${userId}__wk__$projectId');
+
+    /// Após migração, ouve só o doc sem `:` no ID.
+    return Stream.fromFuture(_prepareUserProjectWorkStream(_db, userId, projectId))
+        .asyncExpand((_) => modernRef.snapshots().map((s) {
+              final v = s.data()?['totalSeconds'];
+              if (v is int) return v;
+              if (v is num) return v.toInt();
+              return 0;
+            }));
+  }
+
+  void _transactionAddWorkedSeconds(
+    Transaction tx,
+    String userId,
+    String projectId,
+    int seconds,
+  ) {
+    if (seconds <= 0) return;
+    final ref =
+        _db.collection('user_project_work').doc('${userId}__wk__$projectId');
+    tx.set(
+      ref,
+      {
+        'userId': userId,
+        'projectId': projectId,
+        'totalSeconds': FieldValue.increment(seconds),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Inicia ou muda o projeto em que o tempo está a ser contado. Fecha o segmento anterior e acumula segundos.
+  Future<void> startProjectWorkTimer(String userId, String projectId) async {
+    if (userId.isEmpty || projectId.isEmpty) return;
+    await _ensureUserProjectWorkIdMigratedOnce(_db, userId, projectId).catchError(
+      (e, st) => debugPrint('TG_Work: migrate antes do relógio (start): $e\n$st'),
+    );
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+    try {
+      final preSnap = await clockRef.get();
+      final dynamic preData = preSnap.data();
+      if (preData is Map<String, dynamic>) {
+        final prevEarly = (preData['activeProjectId'] as String?)?.trim();
+        if (prevEarly != null &&
+            prevEarly.isNotEmpty &&
+            prevEarly != projectId) {
+          await _ensureUserProjectWorkIdMigratedOnce(_db, userId, prevEarly).catchError(
+            (e, st) =>
+                debugPrint('TG_Work: migrate projeto anterior antes do relógio: $e\n$st'),
+          );
+        }
+      }
+    } catch (_) {}
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      final now = Timestamp.now();
+      String? prevId;
+      Timestamp? prevStart;
+      if (snap.exists) {
+        final d = snap.data()!;
+        final a = d['activeProjectId'];
+        final t = d['segmentStartedAt'];
+        if (a is String && a.trim().isNotEmpty && t is Timestamp) {
+          prevId = a.trim();
+          prevStart = t;
+        }
+      }
+      if (prevId == projectId && prevStart != null) return;
+
+      if (prevId != null && prevStart != null) {
+        final delta = now.toDate().difference(prevStart.toDate()).inSeconds;
+        _transactionAddWorkedSeconds(tx, userId, prevId, delta);
+      }
+      tx.set(
+        clockRef,
+        {
+          'activeProjectId': projectId,
+          'segmentStartedAt': now,
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  /// Para o relógio e grava o segmento atual no total do projeto.
+  Future<void> stopProjectWorkTimer(String userId) async {
+    if (userId.isEmpty) return;
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+
+    DocumentSnapshot<Map<String, dynamic>>? preloadSnap;
+    try {
+      preloadSnap = await clockRef.get();
+    } catch (_) {}
+    final d = preloadSnap?.data();
+    final pidEarly = (d?['activeProjectId'] as String?)?.trim();
+    if (pidEarly != null && pidEarly.isNotEmpty) {
+      await _ensureUserProjectWorkIdMigratedOnce(_db, userId, pidEarly).catchError(
+        (e, st) => debugPrint('TG_Work: migrate antes do relógio (stop): $e\n$st'),
+      );
+    }
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      if (!snap.exists) return;
+      final d = snap.data()!;
+      final pid = d['activeProjectId'] as String?;
+      final st = d['segmentStartedAt'] as Timestamp?;
+      if (pid == null || pid.trim().isEmpty || st == null) return;
+      final now = Timestamp.now();
+      final delta = now.toDate().difference(st.toDate()).inSeconds;
+      _transactionAddWorkedSeconds(tx, userId, pid.trim(), delta);
+      tx.set(
+        clockRef,
+        {
+          'activeProjectId': FieldValue.delete(),
+          'segmentStartedAt': FieldValue.delete(),
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  /// Ao sair do ecrã do projeto: só grava e limpa se o relógio activo for mesmo [projectId].
+  Future<void> stopProjectWorkTimerIfMatchingProject(
+    String userId,
+    String projectId,
+  ) async {
+    if (userId.isEmpty || projectId.isEmpty) return;
+    await _ensureUserProjectWorkIdMigratedOnce(_db, userId, projectId).catchError(
+      (e, st) => debugPrint('TG_Work: migrate antes do relógio (leave): $e\n$st'),
+    );
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      if (!snap.exists) return;
+      final d = snap.data()!;
+      final pid = d['activeProjectId'] as String?;
+      final st = d['segmentStartedAt'] as Timestamp?;
+      if (pid == null || pid.trim() != projectId || st == null) return;
+      final now = Timestamp.now();
+      final delta = now.toDate().difference(st.toDate()).inSeconds;
+      _transactionAddWorkedSeconds(tx, userId, pid.trim(), delta);
+      tx.set(
+        clockRef,
+        {
+          'activeProjectId': FieldValue.delete(),
+          'segmentStartedAt': FieldValue.delete(),
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  CollectionReference<Map<String, dynamic>> _ideScheduleCardsRef(String userId) =>
+      _db.collection('user_ide_schedule').doc(userId).collection('cards');
+
+  Stream<IdeSessionLogsQuerySnapshot> watchIdeSessionLogs(String userId,
+      {int limit = 2500}) {
+    if (userId.isEmpty) {
+      return const Stream<IdeSessionLogsQuerySnapshot>.empty();
+    }
+    final lim = limit < 1 ? 1 : limit;
+    return _db
+        .collection('user_ide_session_logs')
+        .where('userId', isEqualTo: userId)
+        .orderBy('closedAt', descending: true)
+        .limit(lim)
+        .snapshots()
+        .map((snap) {
+      final completed = <IdeSessionLog>[];
+      final allParsed = <IdeSessionLog>[];
+      for (final d in snap.docs) {
+        final log = IdeSessionLog.fromFirestore(d.id, d.data());
+        if (log != null) {
+          allParsed.add(log);
+          if (log.durationSeconds > 0) completed.add(log);
+        }
+      }
+      final n = snap.docs.length;
+      return IdeSessionLogsQuerySnapshot(
+        allParsedSessions: allParsed,
+        completedSessions: completed,
+        queriedDocumentCount: n,
+        hitQueryLimit: n >= lim,
+      );
+    });
+  }
+
+  Stream<List<IdeScheduleCard>> watchIdeScheduleCards(String userId) {
+    if (userId.isEmpty) {
+      return Stream.value([]);
+    }
+    return _ideScheduleCardsRef(userId)
+        .orderBy('sortOrder')
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => IdeScheduleCard.fromFirestore(d.id, d.data()))
+            .toList());
+  }
+
+  Future<String> createIdeScheduleCard({
+    required String userId,
+    required String title,
+    String notes = '',
+    IdeScheduleLane lane = IdeScheduleLane.backlog,
+    String workDateIso = '',
+    String tgProjectId = '',
+    String aggregateKey = '',
+    int ideTrackedSeconds = 0,
+  }) async {
+    if (userId.isEmpty) throw ArgumentError.notNull('userId');
+    final col = _ideScheduleCardsRef(userId);
+    final ref = col.doc();
+    final order = DateTime.now().microsecondsSinceEpoch.toDouble();
+    // Inferir aggregateKey se não fornecido
+    final resolvedKey = aggregateKey.isNotEmpty
+        ? aggregateKey
+        : (tgProjectId.isNotEmpty ? 'tg:$tgProjectId' : '');
+    final card = IdeScheduleCard(
+      id: ref.id,
+      title: title.trim().isEmpty ? '(sem título)' : title.trim(),
+      notes: notes,
+      lane: lane,
+      workDateIso: workDateIso,
+      tgProjectId: tgProjectId,
+      aggregateKey: resolvedKey,
+      ideTrackedSeconds: ideTrackedSeconds < 0 ? 0 : ideTrackedSeconds,
+      sortOrder: order,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await ref.set(card.toCreateMap(order));
+    return ref.id;
+  }
+
+  /// Mantém um cartão Kanban por `aggregateKey` dos registos IDE.
+  /// - `tg:{tgProjectId}`: sessões com projeto TG ligado
+  /// - `ws:{workspaceName}`: sessões sem projeto (agrupadas por workspace)
+  /// Cria automaticamente na primeira vez, actualiza tempo e título quando há sessões novas.
+  Future<void> reconcileIdeKanbanFromIdeSessions({
+    required String userId,
+    required List<IdeSessionLog> logs,
+    required List<Project> projects,
+    required List<IdeScheduleCard> cards,
+    Set<String> excludedAggregateKeys = const {},
+  }) async {
+    if (userId.isEmpty) return;
+
+    final summaries = summarizeIdeSessionsByProject(logs, projects)
+        .where((s) => !excludedAggregateKeys.contains(s.aggregateKey))
+        .toList();
+
+    // Apagar cartões de entradas excluídas da agenda
+    for (final c in cards) {
+      final k = c.aggregateKey.isNotEmpty
+          ? c.aggregateKey
+          : (c.tgProjectId.isNotEmpty ? 'tg:${c.tgProjectId}' : '');
+      if (k.isNotEmpty && excludedAggregateKeys.contains(k)) {
+        await deleteIdeScheduleCard(userId: userId, cardId: c.id);
+      }
+    }
+
+    // Indexar cartões existentes por aggregateKey (preferência) ou por tgProjectId legacy
+    final byKey = <String, List<IdeScheduleCard>>{};
+    for (final c in cards) {
+      final k = c.aggregateKey.isNotEmpty
+          ? c.aggregateKey
+          : (c.tgProjectId.isNotEmpty ? 'tg:${c.tgProjectId}' : '');
+      if (k.isNotEmpty) {
+        byKey.putIfAbsent(k, () => []).add(c);
+      }
+    }
+    for (final list in byKey.values) {
+      list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    }
+
+    for (final s in summaries) {
+      final aggKey = s.aggregateKey;
+      final secs = s.totalDurationSeconds;
+      final desiredTitle = s.displayLabel;
+      final bucket = byKey[aggKey];
+
+      if (bucket == null || bucket.isEmpty) {
+        await createIdeScheduleCard(
+          userId: userId,
+          title: desiredTitle,
+          notes: '',
+          lane: IdeScheduleLane.backlog,
+          workDateIso: '',
+          tgProjectId: s.projectFirestoreId,
+          aggregateKey: aggKey,
+          ideTrackedSeconds: secs,
+        );
+        continue;
+      }
+
+      final primary = bucket.first;
+      final needsUpdate = primary.ideTrackedSeconds != secs ||
+          primary.title != desiredTitle ||
+          primary.aggregateKey != aggKey;
+      if (needsUpdate) {
+        await _ideScheduleCardsRef(userId).doc(primary.id).update({
+          'title': desiredTitle,
+          'ideTrackedSeconds': secs,
+          'aggregateKey': aggKey,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      for (var i = 1; i < bucket.length; i++) {
+        await deleteIdeScheduleCard(userId: userId, cardId: bucket[i].id);
+      }
+    }
+  }
+
+  Future<void> updateIdeScheduleCardLane({
+    required String userId,
+    required String cardId,
+    required IdeScheduleLane lane,
+  }) async {
+    if (userId.isEmpty || cardId.isEmpty) return;
+    await _ideScheduleCardsRef(userId).doc(cardId).update({
+      'lane': lane.firebaseValue,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateIdeScheduleCard({
+    required String userId,
+    required String cardId,
+    required String title,
+    String notes = '',
+    String workDateIso = '',
+    String tgProjectId = '',
+  }) async {
+    if (userId.isEmpty || cardId.isEmpty) return;
+    final ref = _ideScheduleCardsRef(userId).doc(cardId);
+    final map = <String, dynamic>{
+      'title': title.trim().isEmpty ? '(sem título)' : title.trim(),
+      'notes': notes,
+      'workDateIso': workDateIso,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (tgProjectId.isEmpty) {
+      map['tgProjectId'] = FieldValue.delete();
+    } else {
+      map['tgProjectId'] = tgProjectId;
+    }
+    await ref.update(map);
+  }
+
+  Future<void> deleteIdeScheduleCard({
+    required String userId,
+    required String cardId,
+  }) async {
+    if (userId.isEmpty || cardId.isEmpty) return;
+    await _ideScheduleCardsRef(userId).doc(cardId).delete();
+  }
+
+  // ─── Relatório por projeto (Agenda IDE → Firestore para outras apps) ───
+
+  CollectionReference<Map<String, dynamic>> _ideProjectReportsRef(String userId) =>
+      _db.collection('user_ide_project_reports').doc(userId).collection('by_project');
+
+  Stream<List<IdeProjectReportSnapshot>> watchIdeProjectReports(String userId) {
+    if (userId.isEmpty) return Stream.value([]);
+    return _ideProjectReportsRef(userId).snapshots().map((snap) {
+      final list = <IdeProjectReportSnapshot>[];
+      for (final d in snap.docs) {
+        try {
+          final item = IdeProjectReportSnapshot.fromFirestore(d.id, d.data());
+          if (item != null) list.add(item);
+        } catch (e, st) {
+          debugPrint('TG_Work: ignorado report ${d.id}: $e\n$st');
+        }
+      }
+      list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      return list;
+    });
+  }
+
+  Stream<IdeProjectReportSnapshot?> watchIdeProjectReport(
+    String userId,
+    String projectId,
+  ) {
+    if (userId.isEmpty || projectId.isEmpty) return Stream.value(null);
+    return _ideProjectReportsRef(userId).doc(projectId).snapshots().map((d) {
+      if (!d.exists) return null;
+      final data = d.data();
+      if (data == null) return null;
+      return IdeProjectReportSnapshot.fromFirestore(d.id, data);
+    });
+  }
+
+  /// Grava totais do relatório por projeto. O ID do documento = [projectId].
+  Future<void> upsertIdeProjectReport(IdeProjectReportSnapshot snapshot) async {
+    if (snapshot.userId.isEmpty || snapshot.projectId.isEmpty) return;
+    await _ideProjectReportsRef(snapshot.userId)
+        .doc(snapshot.projectId)
+        .set(snapshot.toMap(), SetOptions(merge: true));
+  }
+
+  /// Sincroniza todos os projetos TG Work (excepto excluídos da agenda).
+  Future<void> syncIdeProjectReports({
+    required String userId,
+    required List<Project> projects,
+    required List<IdeSessionLog> completedLogs,
+    required Map<String, DateTime> firstExecDateByProjectId,
+    Set<String> excludedAggregateKeys = const {},
+  }) async {
+    if (userId.isEmpty) return;
+
+    final summaries = summarizeIdeSessionsByProject(completedLogs, projects);
+    final summaryByProjectId = <String, IdeProjectSessionSummary>{
+      for (final s in summaries)
+        if (s.projectFirestoreId.isNotEmpty) s.projectFirestoreId: s,
+    };
+
+    for (final project in projects) {
+      final aggKey = 'tg:${project.id}';
+      if (excludedAggregateKeys.contains(aggKey)) continue;
+
+      final snapshot = computeIdeProjectReportSnapshot(
+        userId: userId,
+        project: project,
+        ideSummary: summaryByProjectId[project.id],
+        execStartDate: firstExecDateByProjectId[project.id],
+      );
+      await upsertIdeProjectReport(snapshot);
+    }
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────

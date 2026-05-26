@@ -14,7 +14,8 @@ import 'note_recording_playback.dart';
 import 'voice_dictation_text_field.dart';
 
 /// Lista de notas com autor e data; botão para nova nota (texto + ditado + gravação).
-class EntityNotesSection extends StatelessWidget {
+/// Stream do Firestore é criado uma vez por montagem para não martelar o SDK nativo no Windows.
+class EntityNotesSection extends StatefulWidget {
   const EntityNotesSection({
     super.key,
     required this.parent,
@@ -30,8 +31,36 @@ class EntityNotesSection extends StatelessWidget {
   final String userId;
   final String userName;
 
+  @override
+  State<EntityNotesSection> createState() => _EntityNotesSectionState();
+}
+
+class _EntityNotesSectionState extends State<EntityNotesSection> {
+  late Stream<List<JournalNote>> _notesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _notesStream = widget.service.watchJournalNotes(widget.parent, widget.parentId);
+  }
+
+  void _bindNotesStream() {
+    _notesStream = widget.service.watchJournalNotes(widget.parent, widget.parentId);
+  }
+
+  @override
+  void didUpdateWidget(covariant EntityNotesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.parent != widget.parent ||
+        oldWidget.parentId != widget.parentId ||
+        !identical(oldWidget.service, widget.service)) {
+      _bindNotesStream();
+      setState(() {});
+    }
+  }
+
   String _effectiveUserId() {
-    if (userId.isNotEmpty) return userId;
+    if (widget.userId.isNotEmpty) return widget.userId;
     return FirebaseAuth.instance.currentUser?.uid ?? '';
   }
 
@@ -46,11 +75,11 @@ class EntityNotesSection extends StatelessWidget {
     await showDialog<void>(
       context: context,
       builder: (ctx) => _AddJournalNoteDialog(
-        parent: parent,
-        parentId: parentId,
-        service: service,
+        parent: widget.parent,
+        parentId: widget.parentId,
+        service: widget.service,
         userId: uid,
-        userName: userName,
+        userName: widget.userName,
       ),
     );
   }
@@ -72,7 +101,7 @@ class EntityNotesSection extends StatelessWidget {
       ),
     );
     if (ok == true && context.mounted) {
-      await service.deleteJournalNote(parent, parentId, note.id);
+      await widget.service.deleteJournalNote(widget.parent, widget.parentId, note.id);
     }
   }
 
@@ -106,7 +135,7 @@ class EntityNotesSection extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         StreamBuilder<List<JournalNote>>(
-          stream: service.watchJournalNotes(parent, parentId),
+          stream: _notesStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Padding(

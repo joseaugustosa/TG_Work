@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -5,143 +6,386 @@ import '../../models/note_recording_holder.dart';
 import '../../models/project.dart';
 import '../../services/firestore_service.dart';
 import '../../services/note_recording_storage.dart';
+import '../../utils/ide_workspace_path_pick.dart';
 import '../../utils/user_display.dart';
+import '../../utils/windows_firestore_compat.dart';
+import '../../utils/kanban_time_summary.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/status_history_sheet.dart';
+import '../../widgets/status_kanban_board.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import 'project_detail_screen.dart';
 
-class ProjectsScreen extends StatelessWidget {
+class ProjectsScreen extends StatefulWidget {
   const ProjectsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final firestoreService = FirestoreService();
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.userChanges(),
-      builder: (context, userSnapshot) {
-        final user = userSnapshot.data ?? FirebaseAuth.instance.currentUser;
-        final userName = firebaseUserDisplayLabel(user);
+  State<ProjectsScreen> createState() => _ProjectsScreenState();
+}
 
+class _ProjectsScreenState extends State<ProjectsScreen> {
+  bool _kanban = false;
+
+  late final FirestoreService _service;
+  late final Stream<List<Project>> _projectsStream;
+  late final Stream<Map<String, DateTime>> _execDatesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = FirestoreService();
+    _projectsStream = _service.getProjects();
+    _execDatesStream = _service.watchProjectFirstExecutionDateMap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final userName = firebaseUserDisplayLabel(user);
+    final showKanbanUi = !firestoreWorkloadReduceOnDesktop;
+    final useKanbanBoard = showKanbanUi && _kanban;
+
+    return StreamBuilder<Map<String, DateTime>>(
+      stream: _execDatesStream,
+      initialData: const {},
+      builder: (context, execSnap) {
+        final execDates = execSnap.data ?? {};
         return Scaffold(
-          body: StreamBuilder<List<Project>>(
-        stream: firestoreService.getProjects(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Erro: ${snapshot.error}'));
-          }
-          final projects = snapshot.data ?? [];
-          if (projects.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.folder_open, size: 80, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text(
-                    'Nenhum projeto ainda.\nClica no + para criar.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
-                ],
-              ),
-            );
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: projects.length,
-            itemBuilder: (context, index) {
-              final project = projects[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 6),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  leading: CircleAvatar(
-                    backgroundColor: const Color(0xFF1A237E).withValues(alpha: 0.1),
-                    child: const Icon(Icons.folder, color: Color(0xFF1A237E)),
-                  ),
-                  title: Text(project.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (project.description.isNotEmpty)
-                        Text(project.description),
-                      _AuditLine(project: project),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      StatusBadge(
-                        label: project.status.label,
-                        color: projectStatusColor(project.status),
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                child: showKanbanUi
+                    ? Align(
+                        alignment: Alignment.centerRight,
+                        child: SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment<bool>(
+                              value: false,
+                              label: Text('Lista'),
+                              icon: Icon(Icons.view_list_outlined, size: 18),
+                            ),
+                            ButtonSegment<bool>(
+                              value: true,
+                              label: Text('Kanban'),
+                              icon: Icon(Icons.view_kanban_outlined, size: 18),
+                            ),
+                          ],
+                          selected: {_kanban},
+                          onSelectionChanged: (s) => setState(() => _kanban = s.first),
+                          style: ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: WidgetStateProperty.resolveWith((states) {
+                              if (states.contains(WidgetState.selected)) {
+                                return const Color(0xFF1A237E);
+                              }
+                              return Colors.grey[700];
+                            }),
+                          ),
+                        ),
+                      )
+                    : Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            'Lista (Kanban só neste momento em Android / iOS)',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 4),
-                      PopupMenuButton<String>(
-                        onSelected: (value) async {
-                          if (value == 'edit') {
-                            _showProjectDialog(
-                              context,
-                              firestoreService,
-                              project: project,
-                              userId: user?.uid ?? '',
-                              userName: userName,
-                            );
-                          } else if (value == 'history') {
-                            StatusHistorySheet.show(
-                              context,
-                              entityId: project.id,
-                              entityName: project.name,
-                            );
-                          } else if (value == 'delete') {
-                            await firestoreService.deleteProject(project.id);
-                          }
+              ),
+              Expanded(
+                child: StreamBuilder<List<Project>>(
+                  stream: _projectsStream,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('Erro: ${snapshot.error}'));
+                    }
+                    final projects = snapshot.data ?? [];
+                    if (projects.isEmpty) {
+                      return const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.folder_open, size: 80, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text(
+                              'Nenhum projeto ainda.\nClica no + para criar.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    if (useKanbanBoard) {
+                      return StatusKanbanBoard<Project, ProjectStatus>(
+                        columns: ProjectStatus.values,
+                        labelOf: (s) => s.label,
+                        colorOf: projectStatusColor,
+                        statusOf: (p) => p.status,
+                        items: projects,
+                        columnWidth: 300,
+                        onItemMoved: (project, status) async {
+                          if (project.status == status) return;
+                          await _service.updateProject(
+                            Project(
+                              id: project.id,
+                              name: project.name,
+                              description: project.description,
+                              descriptionRecordingUrl: project.descriptionRecordingUrl,
+                              status: status,
+                              ideCountingFolderFsPath: project.ideCountingFolderFsPath,
+                              createdBy: project.createdBy,
+                              createdByName: project.createdByName,
+                              createdAt: project.createdAt,
+                            ),
+                            oldProject: project,
+                            userId: user?.uid ?? '',
+                            userName: userName,
+                          );
                         },
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                          const PopupMenuItem(
-                            value: 'history',
-                            child: Row(
+                        cardBuilder: (context, project) {
+                          return Card(
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ProjectDetailScreen(
+                                    projectId: project.id,
+                                    projectName: project.name,
+                                  ),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 18,
+                                          backgroundColor: const Color(0xFF1A237E)
+                                              .withValues(alpha: 0.12),
+                                          child: const Icon(
+                                            Icons.folder_outlined,
+                                            color: Color(0xFF1A237E),
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            project.name,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 15,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        PopupMenuButton<String>(
+                                          onSelected: (value) async {
+                                            if (value == 'edit') {
+                                              _showProjectDialog(
+                                                context,
+                                                _service,
+                                                project: project,
+                                                userId: user?.uid ?? '',
+                                                userName: userName,
+                                              );
+                                            } else if (value == 'history') {
+                                              StatusHistorySheet.show(
+                                                context,
+                                                entityId: project.id,
+                                                entityName: project.name,
+                                              );
+                                            } else if (value == 'delete') {
+                                              await _service
+                                                  .deleteProject(project.id);
+                                            }
+                                          },
+                                          itemBuilder: (_) => [
+                                            const PopupMenuItem(
+                                              value: 'edit',
+                                              child: Text('Editar'),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: 'history',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.history,
+                                                      size: 18, color: Colors.grey),
+                                                  SizedBox(width: 8),
+                                                  Text('Histórico'),
+                                                ],
+                                              ),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: 'delete',
+                                              child: Text('Eliminar'),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    if (project.description.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        project.description,
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 10),
+                                    StatusBadge(
+                                      label: project.status.label,
+                                      color: projectStatusColor(project.status),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      kanbanTimeSummaryPt(
+                                        createdAt: project.createdAt,
+                                        updatedAt: project.updatedAt,
+                                        isDone: project.status == ProjectStatus.concluido ||
+                                            project.status == ProjectStatus.naoExequivel,
+                                        isExequivel: project.status == ProjectStatus.exequivel,
+                                        execSinceDate: execDates[project.id],
+                                      ),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[600],
+                                        height: 1.25,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: projects.length,
+                      itemBuilder: (context, index) {
+                        final project = projects[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                          child: ListTile(
+                            contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            leading: CircleAvatar(
+                              backgroundColor:
+                                  const Color(0xFF1A237E).withValues(alpha: 0.1),
+                              child:
+                                  const Icon(Icons.folder, color: Color(0xFF1A237E)),
+                            ),
+                            title: Text(project.name,
+                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(Icons.history, size: 18, color: Colors.grey),
-                                SizedBox(width: 8),
-                                Text('Histórico'),
+                                if (project.description.isNotEmpty)
+                                  Text(project.description),
+                                _AuditLine(project: project),
                               ],
                             ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                StatusBadge(
+                                  label: project.status.label,
+                                  color: projectStatusColor(project.status),
+                                ),
+                                const SizedBox(width: 4),
+                                PopupMenuButton<String>(
+                                  onSelected: (value) async {
+                                    if (value == 'edit') {
+                                      _showProjectDialog(
+                                        context,
+                                        _service,
+                                        project: project,
+                                        userId: user?.uid ?? '',
+                                        userName: userName,
+                                      );
+                                    } else if (value == 'history') {
+                                      StatusHistorySheet.show(
+                                        context,
+                                        entityId: project.id,
+                                        entityName: project.name,
+                                      );
+                                    } else if (value == 'delete') {
+                                      await _service.deleteProject(project.id);
+                                    }
+                                  },
+                                  itemBuilder: (_) => [
+                                    const PopupMenuItem(
+                                        value: 'edit', child: Text('Editar')),
+                                    const PopupMenuItem(
+                                      value: 'history',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.history,
+                                              size: 18, color: Colors.grey),
+                                          SizedBox(width: 8),
+                                          Text('Histórico'),
+                                        ],
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
+                                        value: 'delete', child: Text('Eliminar')),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ProjectDetailScreen(
+                                  projectId: project.id,
+                                  projectName: project.name,
+                                ),
+                              ),
+                            ),
                           ),
-                          const PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                        ],
-                      ),
-                    ],
-                  ),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ProjectDetailScreen(
-                        projectId: project.id,
-                        projectName: project.name,
-                      ),
-                    ),
-                  ),
+                        );
+                      },
+                    );
+                  },
                 ),
-              );
-            },
-          );
-        },
+              ),
+            ],
           ),
           floatingActionButton: FloatingActionButton(
             backgroundColor: const Color(0xFF1A237E),
             foregroundColor: Colors.white,
             onPressed: () => _showProjectDialog(
               context,
-              firestoreService,
+              _service,
               userId: user?.uid ?? '',
               userName: userName,
             ),
@@ -161,6 +405,8 @@ class ProjectsScreen extends StatelessWidget {
   }) {
     final nameController = TextEditingController(text: project?.name ?? '');
     final descController = TextEditingController(text: project?.description ?? '');
+    final idePathController =
+        TextEditingController(text: project?.ideCountingFolderFsPath ?? '');
     final recordingHolder = NoteRecordingHolder(originalUrl: project?.descriptionRecordingUrl);
     ProjectStatus status = project?.status ?? ProjectStatus.exequivel;
 
@@ -190,14 +436,69 @@ class ProjectsScreen extends StatelessWidget {
                   onChanged: () => setState(() {}),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<ProjectStatus>(
-                  initialValue: status,
-                  decoration:
-                      const InputDecoration(labelText: 'Estado', border: OutlineInputBorder()),
-                  items: ProjectStatus.values
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                      .toList(),
-                  onChanged: (v) => setState(() => status = v!),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: idePathController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Pasta / atalho workspace no PC (contagem IDE)',
+                          hintText:
+                              r'Ex.: C:\dev\meu-repo  ou  C:\atalhos\Projeto.code-workspace',
+                          helperText:
+                              'Opcional. Com login Firebase na extensão TG Work IDE, o projeto costuma ligar‑se só '
+                              'pela pasta aberta (se coincidir com o guardado aqui/Firestore) ou pelo nome da pasta '
+                              '(único). Ou escolhes o caminho ao lado.',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Escolher pasta ou ficheiro…',
+                      onPressed: () async {
+                        if (kIsWeb) {
+                          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Na Web não há acesso aos ficheiros do teu PC. '
+                                'Escreve o caminho ou usa a app no Windows/Android.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        final p =
+                            await pickIdeWorkspaceFilesystemPath(context);
+                        if (p != null && context.mounted) {
+                          idePathController.text = p;
+                          setState(() {});
+                        }
+                      },
+                      icon: const Icon(Icons.folder_open_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Estado',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<ProjectStatus>(
+                      isExpanded: true,
+                      borderRadius: BorderRadius.circular(4),
+                      value: status,
+                      items: ProjectStatus.values
+                          .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => status = v);
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -216,6 +517,7 @@ class ProjectsScreen extends StatelessWidget {
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
                   status: status,
+                  ideCountingFolderFsPath: idePathController.text.trim(),
                   createdBy: project?.createdBy ?? userId,
                   createdByName: project?.createdByName ?? userName,
                   createdAt: project?.createdAt ?? DateTime.now(),
@@ -231,6 +533,7 @@ class ProjectsScreen extends StatelessWidget {
                     name: base.name,
                     description: base.description,
                     status: base.status,
+                    ideCountingFolderFsPath: base.ideCountingFolderFsPath,
                     createdBy: base.createdBy,
                     createdByName: base.createdByName,
                     createdAt: base.createdAt,
@@ -247,6 +550,7 @@ class ProjectsScreen extends StatelessWidget {
                         description: added.description,
                         descriptionRecordingUrl: audioUrl,
                         status: added.status,
+                        ideCountingFolderFsPath: added.ideCountingFolderFsPath,
                         createdBy: added.createdBy,
                         createdByName: added.createdByName,
                         createdAt: added.createdAt,
@@ -268,6 +572,7 @@ class ProjectsScreen extends StatelessWidget {
                       description: base.description,
                       descriptionRecordingUrl: audioUrl,
                       status: base.status,
+                      ideCountingFolderFsPath: base.ideCountingFolderFsPath,
                       createdBy: base.createdBy,
                       createdByName: base.createdByName,
                       createdAt: base.createdAt,
@@ -284,7 +589,11 @@ class ProjectsScreen extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      nameController.dispose();
+      descController.dispose();
+      idePathController.dispose();
+    });
   }
 }
 

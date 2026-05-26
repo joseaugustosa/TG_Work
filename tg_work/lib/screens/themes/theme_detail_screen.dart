@@ -18,7 +18,7 @@ import '../../widgets/history_entry_tile.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../developments/developments_screen.dart';
 
-class ThemeDetailScreen extends StatelessWidget {
+class ThemeDetailScreen extends StatefulWidget {
   final String themeId;
   final String themeName;
   final Project project;
@@ -31,14 +31,52 @@ class ThemeDetailScreen extends StatelessWidget {
   });
 
   @override
+  State<ThemeDetailScreen> createState() => _ThemeDetailScreenState();
+}
+
+class _ThemeDetailScreenState extends State<ThemeDetailScreen> {
+  late final FirestoreService _service;
+  late final Stream<ThemeItem?> _themeStream;
+  late final Stream<List<StatusChange>> _historyStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = FirestoreService();
+    _themeStream = _service.watchTheme(widget.themeId);
+    _historyStream = _service.getStatusHistory(widget.themeId);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final service = FirestoreService();
     final user = FirebaseAuth.instance.currentUser;
     final userName = firebaseUserDisplayLabel(user);
 
     return StreamBuilder<ThemeItem?>(
-      stream: service.watchTheme(themeId),
+      stream: _themeStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(
+              title: Text(
+                widget.themeName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: const Color(0xFF1A237E),
+              foregroundColor: Colors.white,
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  firestoreHistoryErrorHint(snapshot.error),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          );
+        }
+
         final theme = snapshot.data;
 
         return Scaffold(
@@ -47,11 +85,11 @@ class ThemeDetailScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  theme?.name ?? themeName,
+                  theme?.name ?? widget.themeName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  project.name,
+                  widget.project.name,
                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
                 ),
               ],
@@ -65,7 +103,6 @@ class ThemeDetailScreen extends StatelessWidget {
                   tooltip: 'Editar',
                   onPressed: () => _showEditDialog(
                     context,
-                    service,
                     theme,
                     userId: user?.uid ?? '',
                     userName: userName,
@@ -77,8 +114,9 @@ class ThemeDetailScreen extends StatelessWidget {
               ? const Center(child: CircularProgressIndicator())
               : _ThemeDetailBody(
                   theme: theme,
-                  project: project,
-                  service: service,
+                  project: widget.project,
+                  service: _service,
+                  historyStream: _historyStream,
                   userId: user?.uid ?? '',
                   userName: userName,
                 ),
@@ -87,101 +125,115 @@ class ThemeDetailScreen extends StatelessWidget {
     );
   }
 
-  void _showEditDialog(
+  Future<void> _showEditDialog(
     BuildContext context,
-    FirestoreService service,
     ThemeItem theme, {
     required String userId,
     required String userName,
-  }) {
+  }) async {
     final nameController = TextEditingController(text: theme.name);
     final descController = TextEditingController(text: theme.description);
     final recordingHolder = NoteRecordingHolder(originalUrl: theme.descriptionRecordingUrl);
     ThemeStatus status = theme.status;
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Editar Tema'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome do tema',
-                    border: OutlineInputBorder(),
+    try {
+      await showDialog(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setState) => AlertDialog(
+            title: const Text('Editar Tema'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nome do tema',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                VoiceDictationTextField(
-                  controller: descController,
-                  labelText: 'Descrição / introdução',
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 16),
-                NoteRecordingEditor(
-                  holder: recordingHolder,
-                  onChanged: () => setState(() {}),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<ThemeStatus>(
-                  initialValue: status,
-                  decoration: const InputDecoration(
-                    labelText: 'Estado',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  VoiceDictationTextField(
+                    controller: descController,
+                    labelText: 'Descrição / introdução',
+                    maxLines: 3,
                   ),
-                  items: ThemeStatus.values
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                      .toList(),
-                  onChanged: (v) => setState(() => status = v!),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1A237E),
-                foregroundColor: Colors.white,
+                  const SizedBox(height: 16),
+                  NoteRecordingEditor(
+                    holder: recordingHolder,
+                    onChanged: () => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Estado',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<ThemeStatus>(
+                        isExpanded: true,
+                        borderRadius: BorderRadius.circular(4),
+                        value: status,
+                        items: ThemeStatus.values
+                            .map((s) =>
+                                DropdownMenuItem(value: s, child: Text(s.label)))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) setState(() => status = v);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) return;
-                final audioUrl = await NoteRecordingStorage.resolveOnSave(
-                  holder: recordingHolder,
-                  uploadPending: (f) => NoteRecordingStorage.uploadThemeNote(theme.id, f),
-                );
-                final updated = ThemeItem(
-                  id: theme.id,
-                  name: nameController.text.trim(),
-                  description: descController.text.trim(),
-                  descriptionRecordingUrl: audioUrl,
-                  status: status,
-                  projectId: theme.projectId,
-                  createdBy: theme.createdBy,
-                  createdByName: theme.createdByName,
-                  createdAt: theme.createdAt,
-                );
-                await service.updateTheme(
-                  updated,
-                  oldTheme: theme,
-                  userId: userId,
-                  userName: userName,
-                );
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('Guardar'),
             ),
-          ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A237E),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  if (nameController.text.trim().isEmpty) return;
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) =>
+                        NoteRecordingStorage.uploadThemeNote(theme.id, f),
+                  );
+                  final updated = ThemeItem(
+                    id: theme.id,
+                    name: nameController.text.trim(),
+                    description: descController.text.trim(),
+                    descriptionRecordingUrl: audioUrl,
+                    status: status,
+                    projectId: theme.projectId,
+                    createdBy: theme.createdBy,
+                    createdByName: theme.createdByName,
+                    createdAt: theme.createdAt,
+                  );
+                  await _service.updateTheme(
+                    updated,
+                    oldTheme: theme,
+                    userId: userId,
+                    userName: userName,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      nameController.dispose();
+      descController.dispose();
+    }
   }
 }
 
@@ -189,6 +241,7 @@ class _ThemeDetailBody extends StatelessWidget {
   final ThemeItem theme;
   final Project project;
   final FirestoreService service;
+  final Stream<List<StatusChange>> historyStream;
   final String userId;
   final String userName;
 
@@ -196,6 +249,7 @@ class _ThemeDetailBody extends StatelessWidget {
     required this.theme,
     required this.project,
     required this.service,
+    required this.historyStream,
     required this.userId,
     required this.userName,
   });
@@ -244,7 +298,7 @@ class _ThemeDetailBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         StreamBuilder<List<StatusChange>>(
-          stream: service.getStatusHistory(theme.id),
+          stream: historyStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Padding(

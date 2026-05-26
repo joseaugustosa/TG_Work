@@ -18,7 +18,7 @@ import '../../widgets/status_badge.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 
-class DevelopmentDetailScreen extends StatelessWidget {
+class DevelopmentDetailScreen extends StatefulWidget {
   final String devId;
   final String devName;
   final ThemeItem theme;
@@ -33,14 +33,52 @@ class DevelopmentDetailScreen extends StatelessWidget {
   });
 
   @override
+  State<DevelopmentDetailScreen> createState() => _DevelopmentDetailScreenState();
+}
+
+class _DevelopmentDetailScreenState extends State<DevelopmentDetailScreen> {
+  late final FirestoreService _service;
+  late final Stream<Development?> _devStream;
+  late final Stream<List<StatusChange>> _historyStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = FirestoreService();
+    _devStream = _service.watchDevelopment(widget.devId);
+    _historyStream = _service.getStatusHistory(widget.devId);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final service = FirestoreService();
     final user = FirebaseAuth.instance.currentUser;
     final userName = firebaseUserDisplayLabel(user);
 
     return StreamBuilder<Development?>(
-      stream: service.watchDevelopment(devId),
+      stream: _devStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(
+              title: Text(
+                widget.devName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: const Color(0xFF1A237E),
+              foregroundColor: Colors.white,
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  firestoreHistoryErrorHint(snapshot.error),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          );
+        }
+
         final dev = snapshot.data;
 
         return Scaffold(
@@ -49,11 +87,11 @@ class DevelopmentDetailScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  dev?.name ?? devName,
+                  dev?.name ?? widget.devName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  '${project.name} › ${theme.name}',
+                  '${widget.project.name} › ${widget.theme.name}',
                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -68,7 +106,6 @@ class DevelopmentDetailScreen extends StatelessWidget {
                   tooltip: 'Editar',
                   onPressed: () => _showEditDialog(
                     context,
-                    service,
                     dev,
                     userId: user?.uid ?? '',
                     userName: userName,
@@ -80,7 +117,8 @@ class DevelopmentDetailScreen extends StatelessWidget {
               ? const Center(child: CircularProgressIndicator())
               : _DevDetailBody(
                   dev: dev,
-                  service: service,
+                  service: _service,
+                  historyStream: _historyStream,
                   userId: user?.uid ?? '',
                   userName: userName,
                 ),
@@ -89,114 +127,130 @@ class DevelopmentDetailScreen extends StatelessWidget {
     );
   }
 
-  void _showEditDialog(
+  Future<void> _showEditDialog(
     BuildContext context,
-    FirestoreService service,
     Development dev, {
     required String userId,
     required String userName,
-  }) {
+  }) async {
     final nameController = TextEditingController(text: dev.name);
     final descController = TextEditingController(text: dev.description);
     final recordingHolder = NoteRecordingHolder(originalUrl: dev.descriptionRecordingUrl);
     DevelopmentStatus status = dev.status;
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Editar Desenvolvimento'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome',
-                    border: OutlineInputBorder(),
+    try {
+      await showDialog(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setState) => AlertDialog(
+            title: const Text('Editar Desenvolvimento'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nome',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                VoiceDictationTextField(
-                  controller: descController,
-                  labelText: 'Descrição / introdução',
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 16),
-                NoteRecordingEditor(
-                  holder: recordingHolder,
-                  onChanged: () => setState(() {}),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<DevelopmentStatus>(
-                  initialValue: status,
-                  decoration: const InputDecoration(
-                    labelText: 'Estado',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  VoiceDictationTextField(
+                    controller: descController,
+                    labelText: 'Descrição / introdução',
+                    maxLines: 3,
                   ),
-                  items: DevelopmentStatus.values
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                      .toList(),
-                  onChanged: (v) => setState(() => status = v!),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1A237E),
-                foregroundColor: Colors.white,
+                  const SizedBox(height: 16),
+                  NoteRecordingEditor(
+                    holder: recordingHolder,
+                    onChanged: () => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Estado',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<DevelopmentStatus>(
+                        isExpanded: true,
+                        borderRadius: BorderRadius.circular(4),
+                        value: status,
+                        items: DevelopmentStatus.values
+                            .map((s) =>
+                                DropdownMenuItem(value: s, child: Text(s.label)))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) setState(() => status = v);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) return;
-                final audioUrl = await NoteRecordingStorage.resolveOnSave(
-                  holder: recordingHolder,
-                  uploadPending: (f) => NoteRecordingStorage.uploadDevelopmentNote(dev.id, f),
-                );
-                final updated = Development(
-                  id: dev.id,
-                  name: nameController.text.trim(),
-                  description: descController.text.trim(),
-                  descriptionRecordingUrl: audioUrl,
-                  status: status,
-                  themeId: dev.themeId,
-                  projectId: dev.projectId,
-                  createdBy: dev.createdBy,
-                  createdByName: dev.createdByName,
-                  createdAt: dev.createdAt,
-                );
-                await service.updateDevelopment(
-                  updated,
-                  oldDev: dev,
-                  userId: userId,
-                  userName: userName,
-                );
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('Guardar'),
             ),
-          ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A237E),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  if (nameController.text.trim().isEmpty) return;
+                  final audioUrl = await NoteRecordingStorage.resolveOnSave(
+                    holder: recordingHolder,
+                    uploadPending: (f) =>
+                        NoteRecordingStorage.uploadDevelopmentNote(dev.id, f),
+                  );
+                  final updated = Development(
+                    id: dev.id,
+                    name: nameController.text.trim(),
+                    description: descController.text.trim(),
+                    descriptionRecordingUrl: audioUrl,
+                    status: status,
+                    themeId: dev.themeId,
+                    projectId: dev.projectId,
+                    createdBy: dev.createdBy,
+                    createdByName: dev.createdByName,
+                    createdAt: dev.createdAt,
+                  );
+                  await _service.updateDevelopment(
+                    updated,
+                    oldDev: dev,
+                    userId: userId,
+                    userName: userName,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      nameController.dispose();
+      descController.dispose();
+    }
   }
 }
 
 class _DevDetailBody extends StatelessWidget {
   final Development dev;
   final FirestoreService service;
+  final Stream<List<StatusChange>> historyStream;
   final String userId;
   final String userName;
 
   const _DevDetailBody({
     required this.dev,
     required this.service,
+    required this.historyStream,
     required this.userId,
     required this.userName,
   });
@@ -228,7 +282,7 @@ class _DevDetailBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         StreamBuilder<List<StatusChange>>(
-          stream: service.getStatusHistory(dev.id),
+          stream: historyStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Padding(

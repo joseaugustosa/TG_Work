@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'auth/profile_screen.dart';
+import 'ide_agenda/ide_agenda_screen.dart';
 import 'projects/projects_screen.dart';
 import '../services/auth_service.dart';
 import '../utils/user_display.dart';
@@ -26,7 +27,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() => setState(() {}));
   }
 
@@ -44,6 +45,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
       physics: _tabPhysics,
       children: const [
         ProjectsScreen(),
+        IdeAgendaScreen(),
         ProfileScreen(embedded: true),
       ],
     );
@@ -57,6 +59,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
       unselectedLabelColor: Colors.white70,
       tabs: const [
         Tab(icon: Icon(Icons.folder_outlined), text: 'Projetos'),
+        Tab(icon: Icon(Icons.desktop_windows_outlined), text: 'Agenda IDE'),
         Tab(icon: Icon(Icons.person_outline), text: 'Perfil'),
       ],
     );
@@ -127,6 +130,11 @@ class _HomeShellScreenState extends State<HomeShellScreen>
                           icon: Icon(Icons.folder_outlined),
                           selectedIcon: Icon(Icons.folder),
                           label: Text('Projetos'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.desktop_windows_outlined),
+                          selectedIcon: Icon(Icons.desktop_windows),
+                          label: Text('Agenda IDE'),
                         ),
                         NavigationRailDestination(
                           icon: Icon(Icons.person_outline),

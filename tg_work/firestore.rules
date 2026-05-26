@@ -33,5 +33,73 @@ service cloud.firestore {
     match /status_changes/{docId} {
       allow read, write: if request.auth != null;
     }
+
+    // Preferências por utilizador (faturação / projeto de tempo)
+    match /user_settings/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Relógio de trabalho: um documento por utilizador
+    match /user_work_clock/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Totais de segundos trabalhados (increment/transacções Flutter)
+    match /user_project_work/{docId} {
+      allow read: if request.auth != null &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow create, update: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null &&
+        resource.exists && resource.data.userId == request.auth.uid;
+    }
+
+    // Sessões IDE (VS Code / Cursor → extensão): CREATE ao abrir (stub durationSeconds=0),
+    // PATCH só closedAt+durationSeconds ao fechar (campos imutáveis == resource).
+    match /user_ide_session_logs/{docId} {
+      allow read: if request.auth != null &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.keys().hasAll([
+          'userId', 'workspaceRoot', 'workspaceName', 'tgProjectId', 'editor',
+          'openedAt', 'closedAt', 'durationSeconds'
+        ]) &&
+        request.resource.data.workspaceRoot is string &&
+        request.resource.data.workspaceName is string &&
+        request.resource.data.tgProjectId is string &&
+        request.resource.data.editor is string &&
+        request.resource.data.durationSeconds is int &&
+        request.resource.data.openedAt is timestamp &&
+        request.resource.data.closedAt is timestamp;
+      allow update: if request.auth != null &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.workspaceRoot == resource.data.workspaceRoot &&
+        request.resource.data.workspaceName == resource.data.workspaceName &&
+        request.resource.data.tgProjectId == resource.data.tgProjectId &&
+        request.resource.data.editor == resource.data.editor &&
+        request.resource.data.openedAt == resource.data.openedAt &&
+        request.resource.data.closedAt is timestamp &&
+        request.resource.data.durationSeconds is int &&
+        request.resource.data.durationSeconds >= 0;
+      allow delete: if false;
+    }
+
+    match /user_ide_schedule/{userId}/cards/{cardId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Totais do relatório por projeto (Agenda IDE) — doc ID = projectId
+    match /user_ide_project_reports/{userId}/by_project/{projectId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null &&
+        request.auth.uid == userId &&
+        request.resource.data.userId == userId &&
+        request.resource.data.projectId == projectId;
+      allow delete: if request.auth != null &&
+        request.auth.uid == userId &&
+        resource.data.userId == userId;
+    }
   }
 }

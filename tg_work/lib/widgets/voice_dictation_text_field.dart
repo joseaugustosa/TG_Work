@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
@@ -31,7 +33,10 @@ class VoiceDictationTextField extends StatefulWidget {
 }
 
 class _VoiceDictationTextFieldState extends State<VoiceDictationTextField> {
-  static final SpeechToText _speech = SpeechToText();
+  /// Lazy: `SpeechToText()` no Windows pode inicializar código nativo. O `dispose`
+  /// do widget não pode forçar isso apenas por ler `.isListening` (crash ao fechar
+  /// o diálogo sem ter tocado em "Falar para escrever").
+  static SpeechToText? _speechEngine;
 
   bool _initAttempted = false;
   bool _speechAvailable = false;
@@ -52,8 +57,9 @@ class _VoiceDictationTextFieldState extends State<VoiceDictationTextField> {
   @override
   void dispose() {
     _disposed = true;
-    if (_speech.isListening) {
-      _speech.stop();
+    final engine = _speechEngine;
+    if (engine != null && engine.isListening) {
+      unawaited(engine.stop());
     }
     super.dispose();
   }
@@ -62,21 +68,27 @@ class _VoiceDictationTextFieldState extends State<VoiceDictationTextField> {
     if (_initAttempted) return;
     _initAttempted = true;
     if (!_platformSupported) return;
-    _speechAvailable = await _speech.initialize(
-      onError: (_) {},
-      onStatus: (_) {},
-    );
+    try {
+      _speechEngine ??= SpeechToText();
+      _speechAvailable = await _speechEngine!.initialize(
+        onError: (_) {},
+        onStatus: (_) {},
+      );
+    } catch (e, st) {
+      debugPrint('VoiceDictationSpeech: $e\n$st');
+      _speechAvailable = false;
+    }
   }
 
-  void _attachSessionListeners() {
-    _speech.errorListener = (SpeechRecognitionError e) {
+  void _attachSessionListeners(SpeechToText engine) {
+    engine.errorListener = (SpeechRecognitionError e) {
       if (_disposed || !mounted) return;
       setState(() => _listening = false);
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text('Reconhecimento de voz: ${e.errorMsg}')),
       );
     };
-    _speech.statusListener = (String status) {
+    engine.statusListener = (String status) {
       if (_disposed || !mounted) return;
       if (status == SpeechToText.notListeningStatus ||
           status == SpeechToText.doneStatus) {
@@ -89,7 +101,8 @@ class _VoiceDictationTextFieldState extends State<VoiceDictationTextField> {
 
   Future<void> _toggleListen() async {
     await _ensureInitialized();
-    if (!_platformSupported || !_speechAvailable) {
+    final engine = _speechEngine;
+    if (!_platformSupported || engine == null || !_speechAvailable) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -103,7 +116,7 @@ class _VoiceDictationTextFieldState extends State<VoiceDictationTextField> {
     }
 
     if (_listening) {
-      await _speech.stop();
+      await engine.stop();
       if (mounted) setState(() => _listening = false);
       return;
     }
@@ -117,17 +130,17 @@ class _VoiceDictationTextFieldState extends State<VoiceDictationTextField> {
 
     String? localeId;
     try {
-      final list = await _speech.locales();
+      final list = await engine.locales();
       localeId = _pickPortugueseLocale(list);
     } catch (_) {}
-    localeId ??= (await _speech.systemLocale())?.localeId;
+    localeId ??= (await engine.systemLocale())?.localeId;
 
-    _attachSessionListeners();
+    _attachSessionListeners(engine);
 
     if (mounted) setState(() => _listening = true);
 
     try {
-      await _speech.listen(
+      await engine.listen(
         onResult: (SpeechRecognitionResult result) {
           if (_disposed || !mounted) return;
           final combined = _utteranceBase + result.recognizedWords;

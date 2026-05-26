@@ -13,6 +13,9 @@ String? summarizeProjectEdit(Project old, Project next) {
   if (old.status != next.status) {
     p.add('estado (${old.status.label} → ${next.status.label})');
   }
+  if (old.ideCountingFolderFsPath.trim() != next.ideCountingFolderFsPath.trim()) {
+    p.add('pasta IDE / tempo');
+  }
   if (p.isEmpty) return null;
   return 'Alteração: ${p.join('; ')}';
 }

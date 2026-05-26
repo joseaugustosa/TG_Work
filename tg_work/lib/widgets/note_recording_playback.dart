@@ -14,14 +14,15 @@ class NoteRecordingPlayback extends StatefulWidget {
 }
 
 class _NoteRecordingPlaybackState extends State<NoteRecordingPlayback> {
-  final AudioPlayer _player = AudioPlayer();
+  /// Evita `AudioPlayer()` ao construir o ecrã (Windows / just_audio).
+  AudioPlayer? _player;
   StreamSubscription<PlayerState>? _sub;
   bool _playing = false;
 
   @override
   void dispose() {
     unawaited(_sub?.cancel());
-    _player.dispose();
+    _player?.dispose();
     super.dispose();
   }
 
@@ -29,22 +30,36 @@ class _NoteRecordingPlaybackState extends State<NoteRecordingPlayback> {
     final url = widget.downloadUrl;
     if (url == null || url.isEmpty) return;
 
+    try {
+      _player ??= AudioPlayer();
+    } catch (e, st) {
+      debugPrint('NoteRecordingPlayback player: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reprodução indisponível: $e')),
+        );
+      }
+      return;
+    }
+
+    final player = _player!;
+
     if (_playing) {
       await _sub?.cancel();
       _sub = null;
-      await _player.stop();
+      await player.stop();
       setState(() => _playing = false);
       return;
     }
 
     try {
       await _sub?.cancel();
-      await _player.setUrl(url);
+      await player.setUrl(url);
       setState(() => _playing = true);
-      _sub = _player.playerStateStream.listen((s) {
+      _sub = player.playerStateStream.listen((s) {
         if (!s.playing && mounted) setState(() => _playing = false);
       });
-      await _player.play();
+      await player.play();
     } catch (e) {
       if (mounted) {
         setState(() => _playing = false);

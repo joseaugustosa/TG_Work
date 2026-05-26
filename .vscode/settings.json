@@ -1,0 +1,14 @@
+{
+  "npm.autoDetect": "off",
+  "npm.exclude": [
+    "**/node_modules/**",
+    "**/integrations/vscode-tg-work/**",
+    "**\\integrations\\vscode-tg-work\\**"
+  ],
+  "tgWorkIde.onlyShortcutWorkspace": false,
+  "tgWorkIde.syncToFirestore": true,
+  "tgWorkIde.autoResolveFirestoreProject": true,
+  "tgWorkIde.firebaseApiKey": "AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw",
+  "tgWorkIde.firebaseProjectId": "tg-work-2026",
+  "tgWorkIde.minSessionSeconds": 30
+}

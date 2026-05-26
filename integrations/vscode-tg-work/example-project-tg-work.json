@@ -1,0 +1,5 @@
+{
+  "tgWorkProjectId": "cole_o_id_firestore_do_projeto_em_projects",
+  "projectName": "opcional apenas para ti",
+  "ideCountingFolderFsPath": "opcional: copia da app TG Work (criar/editar projeto); pasta raiz OU caminho absoluto do ficheiro .code-workspace"
+}

@@ -11,6 +11,8 @@ import 'package:record/record.dart';
 import '../models/note_recording_holder.dart';
 
 /// Gravar / ouvir / remover gravação de voz da nota (Windows, Android, iOS).
+/// Recorder/player são criados sob demanda — no Windows criar ao abrir o diálogo
+/// causava terminação da app ao inicializar plugins nativos.
 class NoteRecordingEditor extends StatefulWidget {
   const NoteRecordingEditor({
     super.key,
@@ -26,8 +28,8 @@ class NoteRecordingEditor extends StatefulWidget {
 }
 
 class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
-  final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _player = AudioPlayer();
+  AudioRecorder? _recorder;
+  AudioPlayer? _player;
   StreamSubscription<PlayerState>? _playerStateSub;
   bool _recording = false;
   bool _playing = false;
@@ -41,11 +43,11 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
   @override
   void dispose() {
     if (_recording) {
-      _recorder.cancel();
+      unawaited(_recorder?.cancel());
     }
     unawaited(_playerStateSub?.cancel());
-    _recorder.dispose();
-    _player.dispose();
+    _recorder?.dispose();
+    _player?.dispose();
     super.dispose();
   }
 
@@ -57,10 +59,11 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
   }
 
   Future<({RecordConfig config, String ext})> _pickFormat() async {
-    if (await _recorder.isEncoderSupported(AudioEncoder.wav)) {
+    final rec = _recorder!;
+    if (await rec.isEncoderSupported(AudioEncoder.wav)) {
       return (config: const RecordConfig(encoder: AudioEncoder.wav), ext: 'wav');
     }
-    if (await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
+    if (await rec.isEncoderSupported(AudioEncoder.aacLc)) {
       return (config: const RecordConfig(encoder: AudioEncoder.aacLc), ext: 'm4a');
     }
     return (config: const RecordConfig(encoder: AudioEncoder.wav), ext: 'wav');
@@ -68,7 +71,19 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
 
   Future<void> _startRecord() async {
     if (!_supported) return;
-    final ok = await _recorder.hasPermission();
+    try {
+      _recorder ??= AudioRecorder();
+    } catch (e, st) {
+      debugPrint('TG_Work NoteRecordingEditor recorder: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Microfone não disponível: $e')),
+        );
+      }
+      return;
+    }
+
+    final ok = await _recorder!.hasPermission();
     if (!ok) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -84,10 +99,11 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
 
     final dir = await getTemporaryDirectory();
     final fmt = await _pickFormat();
-    final outPath = p.join(dir.path, 'tg_note_${DateTime.now().millisecondsSinceEpoch}.${fmt.ext}');
+    final outPath =
+        p.join(dir.path, 'tg_note_${DateTime.now().millisecondsSinceEpoch}.${fmt.ext}');
 
     try {
-      await _recorder.start(fmt.config, path: outPath);
+      await _recorder!.start(fmt.config, path: outPath);
       setState(() => _recording = true);
     } catch (e) {
       if (mounted) {
@@ -99,8 +115,10 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
   }
 
   Future<void> _stopRecord() async {
+    final rec = _recorder;
+    if (rec == null) return;
     try {
-      final path = await _recorder.stop();
+      final path = await rec.stop();
       if (path != null && path.isNotEmpty) {
         widget.holder.pendingLocalPath = path;
         widget.holder.deleteRecording = false;
@@ -117,21 +135,34 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
     if (widget.holder.deleteRecording) return;
 
     try {
+      _player ??= AudioPlayer();
+    } catch (e, st) {
+      debugPrint('TG_Work NoteRecordingEditor player: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reprodução indisponível: $e')),
+        );
+      }
+      return;
+    }
+
+    try {
       await _playerStateSub?.cancel();
+      final pl = _player!;
       if (local != null && await File(local).exists()) {
-        await _player.setFilePath(local);
+        await pl.setFilePath(local);
       } else if (remote != null && remote.isNotEmpty) {
-        await _player.setUrl(remote);
+        await pl.setUrl(remote);
       } else {
         return;
       }
       setState(() => _playing = true);
-      _playerStateSub = _player.playerStateStream.listen((s) {
+      _playerStateSub = pl.playerStateStream.listen((s) {
         if (!s.playing && mounted) {
           setState(() => _playing = false);
         }
       });
-      await _player.play();
+      await pl.play();
     } catch (e) {
       if (mounted) {
         setState(() => _playing = false);
@@ -145,7 +176,7 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
   Future<void> _stopPlay() async {
     await _playerStateSub?.cancel();
     _playerStateSub = null;
-    await _player.stop();
+    await _player?.stop();
     if (mounted) setState(() => _playing = false);
   }
 
@@ -194,7 +225,11 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
                   foregroundColor: const Color(0xFF1A237E),
                 ),
                 onPressed: _startRecord,
-                icon: const Icon(Icons.fiber_manual_record, size: 18, color: Colors.red),
+                icon: const Icon(
+                  Icons.fiber_manual_record,
+                  size: 18,
+                  color: Colors.red,
+                ),
                 label: const Text('Gravar'),
               )
             else
@@ -219,7 +254,8 @@ class _NoteRecordingEditorState extends State<NoteRecordingEditor> {
               TextButton.icon(
                 onPressed: h.deleteRecording ? _undoRemove : _removeRecording,
                 icon: Icon(h.deleteRecording ? Icons.undo : Icons.delete_outline),
-                label: Text(h.deleteRecording ? 'Repor gravação' : 'Remover gravação'),
+                label:
+                    Text(h.deleteRecording ? 'Repor gravação' : 'Remover gravação'),
               ),
           ],
         ),
