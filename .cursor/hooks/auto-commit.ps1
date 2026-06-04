@@ -22,41 +22,48 @@ if (Test-Path -LiteralPath $lock) {
 }
 New-Item -ItemType File -Force -Path $lock | Out-Null
 
-try {
-    $porcelain = git status --porcelain 2>&1
-    if (-not $porcelain -or ($porcelain | Measure-Object -Line).Lines -eq 0) {
-        exit 0
-    }
-
-    # Nunca incluir ficheiros de credenciais comuns
-    $secretPatterns = @(
-        '.env',
-        '.env.*',
-        '**/credentials.json',
-        '**/google-services.json',
-        '**/*secret*',
-        '**/*apikey*'
+function Test-SkipSecretPath([string]$rel) {
+    $r = $rel -replace '\\', '/'
+    return (
+        $r -match '(^|/)\.env(\.|$|$)' -or
+        $r -match 'credentials\.json$' -or
+        $r -match 'google-services\.json$' -or
+        $r -match '(?i)secret' -or
+        $r -match '(?i)apikey'
     )
-    git add -A 2>&1 | Out-Null
-    foreach ($pat in $secretPatterns) {
-        git reset -q HEAD -- $pat 2>&1 | Out-Null
-    }
+}
 
-    $still = git diff --cached --name-only 2>&1
-    if (-not $still) {
+try {
+    $lines = @(git status --porcelain 2>&1 | Where-Object { $_ -match '\S' })
+    if ($lines.Count -eq 0) {
         exit 0
     }
 
-    $names = @($still | Select-Object -First 8)
-    $summary = if ($names.Count -le 3) {
-        ($names -join ', ')
+    $staged = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in $lines) {
+        if ($line.Length -lt 4) { continue }
+        $path = $line.Substring(3).Trim().Trim('"')
+        if (-not $path -or (Test-SkipSecretPath $path)) { continue }
+        git add -A -- $path 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $staged.Add($path)
+        }
+    }
+
+    $cached = @(git diff --cached --name-only 2>&1 | Where-Object { $_ -match '\S' })
+    if ($cached.Count -eq 0) {
+        exit 0
+    }
+
+    $summary = if ($cached.Count -le 3) {
+        ($cached -join ', ')
     } else {
-        "$($names[0]), $($names[1]) +$($names.Count - 2) mais"
+        "$($cached[0]), $($cached[1]) +$($cached.Count - 2) mais"
     }
     $when = Get-Date -Format 'yyyy-MM-dd HH:mm'
     $msg = "chore(auto): $summary ($when)"
 
-    git commit -m $msg 2>&1 | Out-Null
+    git -c core.editor=true commit -m $msg 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "TG_Work auto-commit: $msg"
     }
