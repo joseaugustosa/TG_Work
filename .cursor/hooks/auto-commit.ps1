@@ -2,9 +2,7 @@
 # Corre na raiz do projeto; nao faz push.
 $ErrorActionPreference = 'SilentlyContinue'
 
-if ([Console]::IsInputRedirected) {
-    $null = [Console]::In.ReadToEnd()
-}
+# Nao ler stdin (ReadToEnd bloqueia em alguns terminais); o commit nao precisa do JSON do hook.
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $repoRoot
