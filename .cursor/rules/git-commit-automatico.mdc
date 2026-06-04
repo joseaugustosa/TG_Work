@@ -1,0 +1,15 @@
+---
+description: Commits automaticos no TG_Work via hook Cursor
+globs: .cursor/hooks/**,.cursor/hooks.json
+alwaysApply: false
+---
+
+# Commit automatico
+
+Ao terminar uma tarefa no Cursor, o hook `stop` executa `.cursor/hooks/auto-commit.ps1`:
+
+- `git add -A` (exceto `.env`, credenciais)
+- `git commit` com mensagem `chore(auto): ...`
+- **Nao faz push** — so local
+
+Reactivar atalho workspace: `scripts/atualiza-atalho-tg-work.ps1`

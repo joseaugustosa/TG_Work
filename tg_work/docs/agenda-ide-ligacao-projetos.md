@@ -27,5 +27,7 @@ flutter build windows
 
 - Ficheiro multi-root: `TG_Work.code-workspace` (raiz, `tg_work`, extensão IDE).
 - Ligação local: `.tgwork/project.json` na raiz do repositório.
+- Atalho ambiente de trabalho: `powershell -ExecutionPolicy Bypass -File scripts/atualiza-atalho-tg-work.ps1` (abre só este workspace no Cursor).
+- **Commit automatico**: hook Cursor `stop` → `.cursor/hooks/auto-commit.ps1` (local, sem push). Config em `.cursor/hooks.json`.
 
 Histórico de implementação: conversa Cursor «agenda IDE → aba projetos» (Jun 2026).
