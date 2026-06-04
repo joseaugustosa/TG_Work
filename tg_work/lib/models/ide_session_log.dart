@@ -26,6 +26,18 @@ class IdeSessionLog {
     required this.durationSeconds,
   });
 
+  IdeSessionLog copyWith({String? tgProjectId}) => IdeSessionLog(
+        id: id,
+        userId: userId,
+        workspaceRoot: workspaceRoot,
+        workspaceName: workspaceName,
+        tgProjectId: tgProjectId ?? this.tgProjectId,
+        editor: editor,
+        openedAt: openedAt,
+        closedAt: closedAt,
+        durationSeconds: durationSeconds,
+      );
+
   static DateTime localCalendarDay(DateTime dt) =>
       DateTime(dt.year, dt.month, dt.day);
 

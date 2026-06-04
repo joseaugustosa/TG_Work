@@ -5,6 +5,7 @@ import 'ide_agenda/ide_agenda_screen.dart';
 import 'projects/projects_screen.dart';
 import '../services/auth_service.dart';
 import '../utils/user_display.dart';
+import '../widgets/ide_agenda_projects_link_host.dart';
 
 /// Shell principal: mesmas secções (Projetos, Perfil) em todos os sistemas.
 /// Em ecrã largo (ex.: Windows) mostra barra lateral; no telemóvel usa abas no AppBar.
@@ -72,9 +73,12 @@ class _HomeShellScreenState extends State<HomeShellScreen>
       builder: (context, userSnapshot) {
         final user = userSnapshot.data ?? FirebaseAuth.instance.currentUser;
         final profileLine = firebaseProfileSubtitle(user);
-        final wide = MediaQuery.sizeOf(context).width >= HomeShellScreen.railBreakpoint;
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final wide = screenWidth >= HomeShellScreen.railBreakpoint;
+        final extendedRail = screenWidth >= 1100;
 
-        return Scaffold(
+        return IdeAgendaProjectsLinkHost(
+          child: Scaffold(
           appBar: AppBar(
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,7 +117,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     NavigationRail(
-                      extended: MediaQuery.sizeOf(context).width >= 1100,
+                      extended: extendedRail,
                       selectedIndex: _tabController.index,
                       onDestinationSelected: (i) => _tabController.animateTo(i),
                       backgroundColor: const Color(0xFFE8EAF6),
@@ -124,7 +128,10 @@ class _HomeShellScreenState extends State<HomeShellScreen>
                       ),
                       unselectedIconTheme: IconThemeData(color: Colors.grey[700]),
                       unselectedLabelTextStyle: TextStyle(color: Colors.grey[700]),
-                      labelType: NavigationRailLabelType.all,
+                      // Com extended=true o Flutter exige labelType none (senão assertion).
+                      labelType: extendedRail
+                          ? NavigationRailLabelType.none
+                          : NavigationRailLabelType.all,
                       destinations: const [
                         NavigationRailDestination(
                           icon: Icon(Icons.folder_outlined),
@@ -148,6 +155,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
                   ],
                 )
               : _tabPages(),
+        ),
         );
       },
     );

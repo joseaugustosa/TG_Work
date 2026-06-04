@@ -10,6 +10,7 @@ import '../../models/project.dart';
 import '../../services/firestore_service.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/ide_project_session_summary.dart';
+import '../../utils/user_display.dart';
 import '../../utils/kanban_ide_work_seconds.dart';
 import '../../utils/work_timer_format.dart';
 import '../../widgets/ide_session_progressive_chart.dart';
@@ -39,6 +40,7 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
 
   List<Project> _projectsForSync = [];
   List<IdeSessionLog> _logsForSync = [];
+  List<IdeSessionLog> _allLogsForSync = [];
   List<IdeScheduleCard> _cardsForSync = [];
   Set<String> _excludedKeysForSync = {};
   Map<String, DateTime> _firstExecDateForSync = {};
@@ -74,6 +76,7 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
     _syncUid = null;
     _projectsForSync = [];
     _logsForSync = [];
+    _allLogsForSync = [];
     _cardsForSync = [];
     _excludedKeysForSync = {};
     _firstExecDateForSync = {};
@@ -107,7 +110,11 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
           try {
             await _service.reconcileIdeKanbanFromIdeSessions(
               userId: uid,
+              userName: firebaseUserDisplayLabel(
+                FirebaseAuth.instance.currentUser,
+              ),
               logs: _logsForSync,
+              allLogs: _allLogsForSync,
               projects: _projectsForSync,
               cards: _cardsForSync,
               excludedAggregateKeys: _excludedKeysForSync,
@@ -132,6 +139,7 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
     });
     _logsSub = _service.watchIdeSessionLogs(uid, limit: 2500).listen((page) {
       _logsForSync = page.completedSessions;
+      _allLogsForSync = page.allParsedSessions;
       scheduleReconcile();
     });
     _cardsSub = _service.watchIdeScheduleCards(uid).listen((c) {
@@ -647,9 +655,9 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                                   color: Colors.teal.shade700,
                                   seconds: kanbanCalSecs,
                                   subtitle:
-                                      '${kanbanIdeReportSpanLabelPt(kanbanDays.start!, kanbanDays.end!)} × ${kanbanWorkHoursPerCalendarDay} h',
+                                      '${kanbanIdeReportSpanLabelPt(kanbanDays.start!, kanbanDays.end!)} × $kanbanWorkHoursPerCalendarDay h',
                                 ),
-                              if (kanbanPill != null) kanbanPill,
+                              ?kanbanPill,
                             ],
                           ),
                         ],

@@ -40,6 +40,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final userName = firebaseUserDisplayLabel(user);

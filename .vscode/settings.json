@@ -1,4 +1,5 @@
 {
+  "dart.projectSearchPaths": ["tg_work"],
   "npm.autoDetect": "off",
   "npm.exclude": [
     "**/node_modules/**",

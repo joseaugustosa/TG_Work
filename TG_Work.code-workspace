@@ -1,0 +1,51 @@
+{
+  "folders": [
+    {
+      "name": "TG_Work (raiz)",
+      "path": "."
+    },
+    {
+      "name": "App Flutter",
+      "path": "tg_work"
+    },
+    {
+      "name": "Extensão IDE",
+      "path": "integrations/vscode-tg-work"
+    }
+  ],
+  "settings": {
+    "dart.projectSearchPaths": ["tg_work"],
+    "npm.autoDetect": "off",
+    "npm.exclude": [
+      "**/node_modules/**",
+      "**/integrations/vscode-tg-work/**"
+    ],
+    "tgWorkIde.onlyShortcutWorkspace": false,
+    "tgWorkIde.syncToFirestore": true,
+    "tgWorkIde.autoResolveFirestoreProject": true,
+    "tgWorkIde.firebaseApiKey": "AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw",
+    "tgWorkIde.firebaseProjectId": "tg-work-2026",
+    "tgWorkIde.minSessionSeconds": 30
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "TG Work (Windows)",
+        "type": "dart",
+        "request": "launch",
+        "cwd": "${workspaceFolder:App Flutter}",
+        "program": "lib/main.dart",
+        "deviceId": "windows"
+      },
+      {
+        "name": "TG Work (Android)",
+        "type": "dart",
+        "request": "launch",
+        "cwd": "${workspaceFolder:App Flutter}",
+        "program": "lib/main.dart",
+        "deviceId": "android"
+      }
+    ]
+  }
+}

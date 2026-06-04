@@ -16,6 +16,7 @@ import '../models/ide_session_log.dart';
 import '../models/ide_project_report_snapshot.dart';
 import '../utils/ide_project_session_summary.dart';
 import '../utils/ide_project_report_totals.dart';
+import '../utils/ide_project_auto_link.dart';
 
 /// IDs legacy em `user_project_work`: `uid::projectId`.
 /// No cliente Windows apareceram quedas ao subscrever documentos com `:` no ID.
@@ -843,6 +844,406 @@ class FirestoreService {
             .toList());
   }
 
+  Future<List<Project>> _fetchAllProjectsOnce() async {
+    final snap = await _db
+        .collection('projects')
+        .orderBy('createdAt', descending: true)
+        .get();
+    return snap.docs.map((d) => Project.fromMap(d.data(), d.id)).toList();
+  }
+
+  /// Liga workspaces/cartões da agenda IDE à coleção `projects` (aba Projetos).
+  Future<List<Project>> ensureIdeAgendaLinkedToProjectsTab({
+    required String userId,
+    required String userName,
+    required List<IdeSessionLog> logs,
+    required List<IdeScheduleCard> cards,
+    List<IdeSessionLog>? allLogs,
+    List<Project>? projects,
+    Set<String> excludedAggregateKeys = const {},
+  }) async {
+    final parsedAll = allLogs ?? logs;
+    final afterOrphans = await ensureProjectsForOrphanIdeReferences(
+      userId: userId,
+      userName: userName,
+      allLogs: parsedAll,
+      cards: cards,
+      projects: projects,
+      excludedAggregateKeys: excludedAggregateKeys,
+    );
+    final afterSessions = await ensureProjectsFromUnlinkedIdeSessions(
+      userId: userId,
+      userName: userName,
+      logs: logs,
+      projects: afterOrphans,
+      excludedAggregateKeys: excludedAggregateKeys,
+    );
+    return ensureProjectsFromIdeScheduleCards(
+      userId: userId,
+      userName: userName,
+      cards: cards,
+      logs: logs,
+      projects: afterSessions,
+      excludedAggregateKeys: excludedAggregateKeys,
+    );
+  }
+
+  /// Sessões/cartões com `tgProjectId` mas sem documento em `projects` (ex.: extensão resolveu ID que já não existe).
+  Future<List<Project>> ensureProjectsForOrphanIdeReferences({
+    required String userId,
+    required String userName,
+    required List<IdeSessionLog> allLogs,
+    required List<IdeScheduleCard> cards,
+    List<Project>? projects,
+    Set<String> excludedAggregateKeys = const {},
+  }) async {
+    if (userId.isEmpty) return projects ?? [];
+
+    var list = List<Project>.from(projects ?? await _fetchAllProjectsOnce());
+    final orphans = orphanIdeProjectIdsWithLabels(
+      allLogs: allLogs,
+      cards: cards,
+      projects: list,
+    );
+    if (orphans.isEmpty) return list;
+
+    for (final entry in orphans.entries) {
+      final pid = entry.key;
+      if (isIdeAgendaAggregateKeyExcluded('tg:$pid', excludedAggregateKeys)) {
+        continue;
+      }
+
+      final groupLogs =
+          allLogs.where((l) => l.tgProjectId.trim() == pid).toList();
+      final idePath = ideCountingPathFromLogs(groupLogs);
+      final now = DateTime.now();
+      final name = entry.value.trim().isNotEmpty ? entry.value.trim() : 'Projeto IDE';
+
+      await _restoreProjectAtFirestoreId(
+        projectId: pid,
+        project: Project(
+          id: pid,
+          name: name,
+          description:
+              'Recuperado automaticamente a partir da agenda IDE (referência existente nas sessões).',
+          status: ProjectStatus.exequivel,
+          createdBy: userId,
+          createdByName: userName,
+          createdAt: now,
+          ideCountingFolderFsPath: idePath,
+        ),
+        userId: userId,
+        userName: userName,
+      );
+
+      list = [
+        Project(
+          id: pid,
+          name: name,
+          description:
+              'Recuperado automaticamente a partir da agenda IDE (referência existente nas sessões).',
+          status: ProjectStatus.exequivel,
+          createdBy: userId,
+          createdByName: userName,
+          createdAt: now,
+          ideCountingFolderFsPath: idePath,
+        ),
+        ...list.where((p) => p.id != pid),
+      ];
+      debugPrint('TG_Work: projeto restaurado na aba Projetos · id=$pid · $name');
+    }
+
+    return list;
+  }
+
+  Future<void> _restoreProjectAtFirestoreId({
+    required String projectId,
+    required Project project,
+    required String userId,
+    required String userName,
+  }) async {
+    if (projectId.isEmpty) return;
+    final snap = await _db.collection('projects').doc(projectId).get();
+    if (snap.exists) return;
+
+    final now = DateTime.now();
+    final actorName = normalizeStoredActorName(userName);
+    await _db.collection('projects').doc(projectId).set(project.toMap());
+    await _logAuditEntry(
+      entityType: 'project',
+      entityId: projectId,
+      entityName: project.name,
+      summaryLine: 'Criação do projeto (ligação agenda IDE)',
+      userId: userId,
+      userName: actorName,
+      changedAt: now,
+    );
+  }
+
+  /// Quando a IDE regista sessões sem `tgProjectId`, cria (ou liga) um documento em `projects`
+  /// para aparecer na aba Projetos e nas sessões futuras com o ID correcto.
+  Future<List<Project>> ensureProjectsFromUnlinkedIdeSessions({
+    required String userId,
+    required String userName,
+    required List<IdeSessionLog> logs,
+    List<Project>? projects,
+    Set<String> excludedAggregateKeys = const {},
+  }) async {
+    if (userId.isEmpty) return projects ?? [];
+
+    var list = List<Project>.from(projects ?? await _fetchAllProjectsOnce());
+    final summaries = summarizeIdeSessionsByProject(logs, list)
+        .where((s) =>
+            s.isUnlinked &&
+            !isIdeAgendaAggregateKeyExcluded(s.aggregateKey, excludedAggregateKeys))
+        .toList();
+    if (summaries.isEmpty) return list;
+
+    for (final summary in summaries) {
+      final groupLogs = ideLogsForWorkspaceAggregate(logs, summary);
+      if (groupLogs.isEmpty) continue;
+
+      var projectId = findExistingProjectIdForIdeGroup(
+        summary: summary,
+        groupLogs: groupLogs,
+        projects: list,
+      );
+
+      if (projectId == null || projectId.isEmpty) {
+        final now = DateTime.now();
+        final name = suggestedProjectNameFromIdeGroup(summary, groupLogs);
+        final idePath = ideCountingPathFromLogs(groupLogs);
+        projectId = await addProject(
+          Project(
+            id: '',
+            name: name,
+            description:
+                'Criado automaticamente a partir de sessões IDE (workspace).',
+            status: ProjectStatus.exequivel,
+            createdBy: userId,
+            createdByName: userName,
+            createdAt: now,
+            ideCountingFolderFsPath: idePath,
+          ),
+          userId: userId,
+          userName: userName,
+        );
+        list = [
+          Project(
+            id: projectId,
+            name: name,
+            description:
+                'Criado automaticamente a partir de sessões IDE (workspace).',
+            status: ProjectStatus.exequivel,
+            createdBy: userId,
+            createdByName: userName,
+            createdAt: now,
+            ideCountingFolderFsPath: idePath,
+          ),
+          ...list,
+        ];
+      }
+
+      await _backfillIdeSessionTgProjectId(
+        userId: userId,
+        groupLogs: groupLogs,
+        tgProjectId: projectId,
+      );
+      applyTgProjectIdToIdeLogsInPlace(
+        logs: logs,
+        groupLogs: groupLogs,
+        tgProjectId: projectId,
+      );
+    }
+
+    return list;
+  }
+
+  /// Cartões Kanban da agenda (`ws:…`) sem documento em `projects` → cria/liga na aba Projetos.
+  Future<List<Project>> ensureProjectsFromIdeScheduleCards({
+    required String userId,
+    required String userName,
+    required List<IdeScheduleCard> cards,
+    required List<IdeSessionLog> logs,
+    List<Project>? projects,
+    Set<String> excludedAggregateKeys = const {},
+  }) async {
+    if (userId.isEmpty) return projects ?? [];
+
+    var list = List<Project>.from(projects ?? await _fetchAllProjectsOnce());
+
+    for (final card in cards) {
+      if (isIdeScheduleCardExcluded(card, excludedAggregateKeys)) continue;
+
+      final aggKey = ideScheduleCardAggregateKey(card);
+      if (isIdeAgendaAggregateKeyExcluded(aggKey, excludedAggregateKeys)) {
+        continue;
+      }
+
+      if (aggKey.startsWith('tg:')) {
+        final pid = aggKey.substring(3).trim();
+        if (pid.isNotEmpty && !list.any((p) => p.id == pid)) {
+          final groupLogs =
+              logs.where((l) => l.tgProjectId.trim() == pid).toList();
+          final now = DateTime.now();
+          final name = card.title.trim().isNotEmpty
+              ? card.title.trim()
+              : suggestedProjectNameFromIdeGroup(
+                  IdeProjectSessionSummary(
+                    aggregateKey: aggKey,
+                    projectFirestoreId: pid,
+                    workspaceName: '',
+                    displayLabel: card.title,
+                    sessionCount: groupLogs.length,
+                    distinctLocalDays: 0,
+                    totalDurationSeconds: card.ideTrackedSeconds,
+                  ),
+                  groupLogs,
+                );
+          await _restoreProjectAtFirestoreId(
+            projectId: pid,
+            project: Project(
+              id: pid,
+              name: name,
+              description:
+                  'Recuperado automaticamente a partir do cartão da agenda IDE.',
+              status: ProjectStatus.exequivel,
+              createdBy: userId,
+              createdByName: userName,
+              createdAt: now,
+              ideCountingFolderFsPath: ideCountingPathFromLogs(groupLogs),
+            ),
+            userId: userId,
+            userName: userName,
+          );
+          list = [
+            Project(
+              id: pid,
+              name: name,
+              description:
+                  'Recuperado automaticamente a partir do cartão da agenda IDE.',
+              status: ProjectStatus.exequivel,
+              createdBy: userId,
+              createdByName: userName,
+              createdAt: now,
+              ideCountingFolderFsPath: ideCountingPathFromLogs(groupLogs),
+            ),
+            ...list.where((p) => p.id != pid),
+          ];
+        }
+        continue;
+      }
+
+      if (!aggKey.startsWith('ws:')) {
+        continue;
+      }
+
+      final wsName = aggKey.length > 3 ? aggKey.substring(3) : card.title.trim();
+      if (wsName.isEmpty) continue;
+
+      final summary = IdeProjectSessionSummary(
+        aggregateKey: aggKey,
+        projectFirestoreId: '',
+        workspaceName: wsName,
+        displayLabel: card.title.trim().isNotEmpty ? card.title.trim() : wsName,
+        sessionCount: 0,
+        distinctLocalDays: 0,
+        totalDurationSeconds: card.ideTrackedSeconds,
+      );
+      final groupLogs = ideLogsForWorkspaceAggregate(logs, summary);
+
+      var projectId = findExistingProjectIdForIdeGroup(
+        summary: summary,
+        groupLogs: groupLogs,
+        projects: list,
+      );
+
+      if (projectId == null || projectId.isEmpty) {
+        final now = DateTime.now();
+        final name = suggestedProjectNameFromIdeGroup(summary, groupLogs);
+        final idePath = ideCountingPathFromLogs(groupLogs);
+        projectId = await addProject(
+          Project(
+            id: '',
+            name: name,
+            description:
+                'Criado automaticamente a partir da agenda IDE (Kanban).',
+            status: ProjectStatus.exequivel,
+            createdBy: userId,
+            createdByName: userName,
+            createdAt: now,
+            ideCountingFolderFsPath: idePath,
+          ),
+          userId: userId,
+          userName: userName,
+        );
+        list = [
+          Project(
+            id: projectId,
+            name: name,
+            description:
+                'Criado automaticamente a partir da agenda IDE (Kanban).',
+            status: ProjectStatus.exequivel,
+            createdBy: userId,
+            createdByName: userName,
+            createdAt: now,
+            ideCountingFolderFsPath: idePath,
+          ),
+          ...list,
+        ];
+      }
+
+      if (groupLogs.isNotEmpty) {
+        await _backfillIdeSessionTgProjectId(
+          userId: userId,
+          groupLogs: groupLogs,
+          tgProjectId: projectId,
+        );
+        applyTgProjectIdToIdeLogsInPlace(
+          logs: logs,
+          groupLogs: groupLogs,
+          tgProjectId: projectId,
+        );
+      }
+
+      final linkedKey = 'tg:$projectId';
+      if (card.tgProjectId != projectId || card.aggregateKey != linkedKey) {
+        await _ideScheduleCardsRef(userId).doc(card.id).update({
+          'tgProjectId': projectId,
+          'aggregateKey': linkedKey,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    return list;
+  }
+
+  Future<void> _backfillIdeSessionTgProjectId({
+    required String userId,
+    required List<IdeSessionLog> groupLogs,
+    required String tgProjectId,
+  }) async {
+    if (userId.isEmpty || tgProjectId.isEmpty) return;
+    var batch = _db.batch();
+    var pending = 0;
+    for (final log in groupLogs) {
+      if (log.tgProjectId.trim().isNotEmpty) continue;
+      if (log.id.isEmpty) continue;
+      batch.update(
+        _db.collection('user_ide_session_logs').doc(log.id),
+        {'tgProjectId': tgProjectId},
+      );
+      pending++;
+      if (pending >= 400) {
+        await batch.commit();
+        batch = _db.batch();
+        pending = 0;
+      }
+    }
+    if (pending > 0) await batch.commit();
+  }
+
   Future<String> createIdeScheduleCard({
     required String userId,
     required String title,
@@ -884,16 +1285,46 @@ class FirestoreService {
   /// Cria automaticamente na primeira vez, actualiza tempo e título quando há sessões novas.
   Future<void> reconcileIdeKanbanFromIdeSessions({
     required String userId,
+    required String userName,
     required List<IdeSessionLog> logs,
     required List<Project> projects,
     required List<IdeScheduleCard> cards,
+    List<IdeSessionLog>? allLogs,
     Set<String> excludedAggregateKeys = const {},
   }) async {
     if (userId.isEmpty) return;
 
-    final summaries = summarizeIdeSessionsByProject(logs, projects)
+    final parsedAll = allLogs ?? logs;
+    final projectsAfterOrphans = await ensureProjectsForOrphanIdeReferences(
+      userId: userId,
+      userName: userName,
+      allLogs: parsedAll,
+      cards: cards,
+      projects: projects,
+      excludedAggregateKeys: excludedAggregateKeys,
+    );
+
+    final projectsAfterSessions = await ensureProjectsFromUnlinkedIdeSessions(
+      userId: userId,
+      userName: userName,
+      logs: logs,
+      projects: projectsAfterOrphans,
+      excludedAggregateKeys: excludedAggregateKeys,
+    );
+
+    final projectsAfterEnsure = await ensureProjectsFromIdeScheduleCards(
+      userId: userId,
+      userName: userName,
+      cards: cards,
+      logs: logs,
+      projects: projectsAfterSessions,
+      excludedAggregateKeys: excludedAggregateKeys,
+    );
+
+    final summaries = summarizeIdeSessionsByProject(logs, projectsAfterEnsure)
         .where((s) => !excludedAggregateKeys.contains(s.aggregateKey))
         .toList();
+    final summaryKeys = summaries.map((s) => s.aggregateKey).toSet();
 
     // Apagar cartões de entradas excluídas da agenda
     for (final c in cards) {
@@ -919,6 +1350,18 @@ class FirestoreService {
       list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     }
 
+    // Cartões `ws:` órfãos depois de ligar sessões a um projecto TG (`tg:`).
+    for (final c in cards) {
+      final k = c.aggregateKey.isNotEmpty
+          ? c.aggregateKey
+          : (c.tgProjectId.isNotEmpty ? 'tg:${c.tgProjectId}' : '');
+      if (k.startsWith('ws:') &&
+          !summaryKeys.contains(k) &&
+          !excludedAggregateKeys.contains(k)) {
+        await deleteIdeScheduleCard(userId: userId, cardId: c.id);
+      }
+    }
+
     for (final s in summaries) {
       final aggKey = s.aggregateKey;
       final secs = s.totalDurationSeconds;
@@ -940,16 +1383,24 @@ class FirestoreService {
       }
 
       final primary = bucket.first;
+      final linkedPid = s.projectFirestoreId;
       final needsUpdate = primary.ideTrackedSeconds != secs ||
           primary.title != desiredTitle ||
-          primary.aggregateKey != aggKey;
+          primary.aggregateKey != aggKey ||
+          (linkedPid.isNotEmpty && primary.tgProjectId != linkedPid);
       if (needsUpdate) {
-        await _ideScheduleCardsRef(userId).doc(primary.id).update({
+        final patch = <String, dynamic>{
           'title': desiredTitle,
           'ideTrackedSeconds': secs,
           'aggregateKey': aggKey,
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        };
+        if (linkedPid.isNotEmpty) {
+          patch['tgProjectId'] = linkedPid;
+        } else {
+          patch['tgProjectId'] = FieldValue.delete();
+        }
+        await _ideScheduleCardsRef(userId).doc(primary.id).update(patch);
       }
 
       for (var i = 1; i < bucket.length; i++) {

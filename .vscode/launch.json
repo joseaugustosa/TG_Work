@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TG Work (Windows)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/tg_work",
+      "program": "lib/main.dart",
+      "deviceId": "windows"
+    },
+    {
+      "name": "TG Work (Edge)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/tg_work",
+      "program": "lib/main.dart",
+      "deviceId": "edge"
+    },
+    {
+      "name": "TG Work (Android)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/tg_work",
+      "program": "lib/main.dart",
+      "deviceId": "android"
+    }
+  ]
+}

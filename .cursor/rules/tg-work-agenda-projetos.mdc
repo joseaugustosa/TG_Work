@@ -1,0 +1,13 @@
+---
+description: Ligação automática Agenda IDE ↔ aba Projetos (TG Work)
+globs: tg_work/lib/**/*.dart,tg_work/firestore.rules,.tgwork/project.json
+alwaysApply: false
+---
+
+# Agenda IDE e aba Projetos
+
+- Projetos visíveis na Agenda IDE devem existir em `projects` (Firestore). Usar `FirestoreService.ensureIdeAgendaLinkedToProjectsTab` / `ensureProjectsForOrphanIdeReferences` — não assumir que `tgProjectId` nas sessões implica documento em `projects`.
+- Órfãos: sessão ou cartão com `tgProjectId` sem doc → `_restoreProjectAtFirestoreId` (mesmo ID).
+- Workspaces sem ID: `ensureProjectsFromUnlinkedIdeSessions` + backfill `tgProjectId` (regras Firestore permitem `""` → id).
+- Sincronização app-wide: `IdeAgendaProjectsLinkHost`. Documentação: `tg_work/docs/agenda-ide-ligacao-projetos.md`.
+- Workspace local: `TG_Work.code-workspace`; `.tgwork/project.json` na raiz do repo.

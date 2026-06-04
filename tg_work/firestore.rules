@@ -77,12 +77,19 @@ service cloud.firestore {
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.workspaceRoot == resource.data.workspaceRoot &&
         request.resource.data.workspaceName == resource.data.workspaceName &&
-        request.resource.data.tgProjectId == resource.data.tgProjectId &&
         request.resource.data.editor == resource.data.editor &&
         request.resource.data.openedAt == resource.data.openedAt &&
         request.resource.data.closedAt is timestamp &&
         request.resource.data.durationSeconds is int &&
-        request.resource.data.durationSeconds >= 0;
+        request.resource.data.durationSeconds >= 0 &&
+        (
+          request.resource.data.tgProjectId == resource.data.tgProjectId ||
+          (
+            resource.data.tgProjectId == '' &&
+            request.resource.data.tgProjectId is string &&
+            request.resource.data.tgProjectId.size() > 0
+          )
+        );
       allow delete: if false;
     }
 
