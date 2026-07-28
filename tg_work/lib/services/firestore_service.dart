@@ -13,6 +13,7 @@ import '../models/active_work_clock.dart';
 import '../models/ide_schedule_card.dart';
 import '../models/ide_schedule_lane.dart';
 import '../models/ide_session_log.dart';
+import '../models/ide_session_kind.dart';
 import '../models/ide_project_report_snapshot.dart';
 import '../utils/ide_project_session_summary.dart';
 import '../utils/ide_project_report_totals.dart';
@@ -830,6 +831,66 @@ class FirestoreService {
         hitQueryLimit: n >= lim,
       );
     });
+  }
+
+  /// Sessão introduzida na app (não pela extensão IDE).
+  /// Conta para o Kanban / relatório da Agenda IDE como as sessões automáticas.
+  Future<String> addManualIdeSession({
+    required String userId,
+    required String tgProjectId,
+    required IdeSessionKind kind,
+    required DateTime workDay,
+    required int durationSeconds,
+    String projectLabel = '',
+    String notes = '',
+  }) async {
+    if (userId.isEmpty) throw ArgumentError('userId');
+    if (tgProjectId.trim().isEmpty) throw ArgumentError('tgProjectId');
+    if (durationSeconds <= 0) {
+      throw ArgumentError('durationSeconds deve ser > 0');
+    }
+
+    final day = DateTime(workDay.year, workDay.month, workDay.day);
+    final closedAt = day.add(const Duration(hours: 18));
+    final openedAt = closedAt.subtract(Duration(seconds: durationSeconds));
+    final label = projectLabel.trim().isEmpty
+        ? 'Sessão manual'
+        : projectLabel.trim();
+    final note = notes.trim();
+
+    final ref = _db.collection('user_ide_session_logs').doc();
+    await ref.set({
+      'userId': userId,
+      'workspaceRoot': '',
+      'workspaceName': note.isEmpty ? label : '$label · $note',
+      'tgProjectId': tgProjectId.trim(),
+      'editor': kind.storageKey,
+      'openedAt': Timestamp.fromDate(openedAt),
+      'closedAt': Timestamp.fromDate(closedAt),
+      'durationSeconds': durationSeconds,
+      'source': 'manual',
+    });
+    return ref.id;
+  }
+
+  /// Apaga só sessões manuais (`source == manual`) do próprio utilizador.
+  Future<void> deleteManualIdeSession({
+    required String userId,
+    required String sessionId,
+  }) async {
+    if (userId.isEmpty || sessionId.isEmpty) return;
+    final ref = _db.collection('user_ide_session_logs').doc(sessionId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final data = snap.data();
+    if (data == null) return;
+    if ((data['userId'] as String?) != userId) {
+      throw StateError('Sessão de outro utilizador');
+    }
+    if ((data['source'] as String?) != 'manual') {
+      throw StateError('Só se podem apagar sessões manuais');
+    }
+    await ref.delete();
   }
 
   Stream<List<IdeScheduleCard>> watchIdeScheduleCards(String userId) {

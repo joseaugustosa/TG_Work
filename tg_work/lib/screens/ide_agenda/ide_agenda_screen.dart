@@ -9,11 +9,12 @@ import '../../models/ide_session_log.dart';
 import '../../models/project.dart';
 import '../../services/firestore_service.dart';
 import '../../utils/firestore_messages.dart';
+import '../../models/ide_session_kind.dart';
 import '../../utils/ide_project_session_summary.dart';
 import '../../utils/user_display.dart';
-import '../../utils/kanban_ide_work_seconds.dart';
 import '../../utils/work_timer_format.dart';
 import '../../widgets/ide_session_progressive_chart.dart';
+import '../../widgets/manual_ide_session_dialog.dart';
 import '../../widgets/status_kanban_board.dart';
 
 /// Agenda Kanban própria (sessões IDE) + histórico gravado pela extensão VS Code/Cursor.
@@ -174,17 +175,7 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
     }
   }
 
-  String _editorLabelPt(String editor) {
-    switch (editor) {
-      case 'cursor':
-        return 'Cursor';
-      case 'vscode':
-      case 'vscode_insiders':
-        return 'VS Code';
-      default:
-        return editor.isEmpty ? 'IDE' : editor;
-    }
-  }
+  String _editorLabelPt(String editor) => ideSessionEditorLabelPt(editor);
 
   Widget _agendaBullet(String text) {
     return Padding(
@@ -384,11 +375,6 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
             .where((s) => !isIdeAgendaAggregateKeyExcluded(s.aggregateKey, excluded))
             .toList();
 
-        // Data de criação do projeto TG Work por id (início real do projeto)
-        final kanbanCardStart = <String, DateTime>{
-          for (final p in projects) p.id: p.createdAt,
-        };
-
         // Mapas de resolução de labels
         final idToName = {for (final p in projects) p.id: p.name};
 
@@ -476,100 +462,31 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                   ),
                 ),
               const SizedBox(height: 12),
-              StreamBuilder<Map<String, DateTime>>(
-                stream: _service.watchProjectFirstExecutionDateMap(),
-                initialData: const {},
-                builder: (context, execSnap) {
-                  final firstExecDate = execSnap.data ?? {};
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      IdeSessionProgressiveChart(
-                        logs: filteredCompletedLogs,
-                        projects: projects
-                            .where((p) => !isProjectExcludedFromIdeAgenda(p, excluded))
-                            .toList(),
-                        execDates: firstExecDate,
-                      ),
-                      const SizedBox(height: 12),
-                      StreamBuilder<Map<String, int>>(
-                stream: _service.watchAllProjectWorkedSeconds(uid),
-                initialData: const {},
-                builder: (context, kanbanSnap) {
-                  final kanbanSecs = kanbanSnap.data ?? {};
-
-                  // Mapa rápido: tgProjectId -> summary IDE
+              IdeSessionProgressiveChart(
+                logs: filteredCompletedLogs,
+                projects: projects
+                    .where((p) => !isProjectExcludedFromIdeAgenda(p, excluded))
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              Builder(
+                builder: (context) {
                   final summaryByProjectId = <String, IdeProjectSessionSummary>{
                     for (final s in summaries)
                       if (s.projectFirestoreId.isNotEmpty) s.projectFirestoreId: s,
                   };
-                  final unlinkedSummaries = summaries.where((s) => s.isUnlinked).toList();
-
-                  // Todos os projetos TG Work ordenados: mais recente primeiro
+                  final unlinkedSummaries =
+                      summaries.where((s) => s.isUnlinked).toList();
                   final allProjects = projects
                       .where((p) => !isProjectExcludedFromIdeAgenda(p, excluded))
                       .toList()
                     ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-                  Widget projectRow(Project project, IdeProjectSessionSummary? ideSummary) {
-                    final execStart = firstExecDate[project.id];
-                    final isExequivel = project.status == ProjectStatus.exequivel;
-                    final firstIde = ideSummary?.earliestIdeSessionDate;
-
-                    // Formata datas curtas DD/MM/AA
-                    String fmtD(DateTime d) =>
-                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year.toString().substring(2)}';
-
-                    // Pill Kanban — representa o período de trabalho ANTES das sessões IDE.
-                    // Para projetos em execução sem registo de transição, usa createdAt
-                    // como fallback (igual ao que o Kanban da aba Projetos apresenta).
-                    Widget? kanbanPill;
-                    if (isExequivel) {
-                      // Ainda não entrou em execução: mostra só data de inserção
-                      kanbanPill = _KanbanPeriodPill(
-                        label: 'Kanban',
-                        duration: null,
-                        periodLabel: 'Inserido em ${fmtD(project.createdAt)}',
-                      );
-                    } else {
-                      // Usa a data de início de execução registada, ou createdAt como fallback
-                      final start = execStart ?? project.createdAt;
-                      if (firstIde == null) {
-                        // Em execução mas sem sessões IDE ainda: período a decorrer
-                        final span = kanbanIdeReportSpanLabelPt(start, DateTime.now());
-                        kanbanPill = _KanbanPeriodPill(
-                          label: 'Kanban',
-                          duration: span,
-                          periodLabel: 'desde ${fmtD(start)} → hoje',
-                        );
-                      } else if (start.isBefore(firstIde)) {
-                        // Período Kanban: de start até à 1.ª sessão IDE
-                        final span = kanbanIdeReportSpanLabelPt(start, firstIde);
-                        kanbanPill = _KanbanPeriodPill(
-                          label: 'Kanban',
-                          duration: span,
-                          periodLabel: '${fmtD(start)} → ${fmtD(firstIde)}',
-                        );
-                      }
-                      // start >= firstIde: projeto entrou em execução depois
-                      // de já haver sessões IDE — sem período Kanban pré-IDE
-                    }
-
-                    // Total IDE + Kanban (dias de calendário × 8 h/dia)
-                    final ideSecs = ideSummary?.totalDurationSeconds ?? 0;
-                    final kanbanCalSecs = kanbanWorkSecondsForIdeReport(
-                      projectCreatedAt: project.createdAt,
-                      execStartDate: execStart,
-                      firstIdeSessionAt: firstIde,
-                      isExequivel: isExequivel,
-                    );
-                    final kanbanDays = kanbanIdeReportPeriod(
-                      projectCreatedAt: project.createdAt,
-                      execStartDate: execStart,
-                      firstIdeSessionAt: firstIde,
-                      isExequivel: isExequivel,
-                    );
-                    final totalSecs = ideSecs + kanbanCalSecs;
+                  Widget projectRow(
+                    Project project,
+                    IdeProjectSessionSummary? ideSummary,
+                  ) {
+                    final totalSecs = ideSummary?.totalDurationSeconds ?? 0;
                     final totalH = totalSecs ~/ 3600;
                     final totalMin = (totalSecs % 3600) ~/ 60;
                     final totalDays = totalSecs ~/ 86400;
@@ -591,16 +508,55 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                               Expanded(
                                 child: Text(
                                   project.name,
-                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13.5,
+                                  ),
                                 ),
+                              ),
+                              IconButton(
+                                tooltip: 'Inserir sessão manual',
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                                icon: const Icon(Icons.add_circle_outline, size: 20),
+                                color: const Color(0xFF1A237E),
+                                onPressed: () async {
+                                  final ok = await showManualIdeSessionDialog(
+                                    context,
+                                    service: _service,
+                                    userId: uid,
+                                    projectId: project.id,
+                                    projectName: project.name,
+                                  );
+                                  if (ok && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Sessão gravada — actualiza o Kanban.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
                               ),
                               if (totalSecs > 0)
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF1A237E).withValues(alpha: 0.08),
+                                    color: const Color(0xFF1A237E)
+                                        .withValues(alpha: 0.08),
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: const Color(0xFF1A237E).withValues(alpha: 0.2)),
+                                    border: Border.all(
+                                      color: const Color(0xFF1A237E)
+                                          .withValues(alpha: 0.2),
+                                    ),
                                   ),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -619,7 +575,8 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                                           totalDaysLabel,
                                           style: TextStyle(
                                             fontSize: 10,
-                                            color: const Color(0xFF1A237E).withValues(alpha: 0.7),
+                                            color: const Color(0xFF1A237E)
+                                                .withValues(alpha: 0.7),
                                           ),
                                         ),
                                     ],
@@ -634,32 +591,15 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                                 : 'Sem sessões IDE registadas',
                             style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                           ),
-                          const SizedBox(height: 5),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: [
-                              if (ideSummary != null)
-                                _TimePill(
-                                  icon: Icons.terminal,
-                                  label: 'IDE',
-                                  color: const Color(0xFF1A237E),
-                                  seconds: ideSummary.totalDurationSeconds,
-                                ),
-                              if (kanbanCalSecs > 0 &&
-                                  kanbanDays.start != null &&
-                                  kanbanDays.end != null)
-                                _TimePill(
-                                  icon: Icons.view_kanban_outlined,
-                                  label: 'Kanban',
-                                  color: Colors.teal.shade700,
-                                  seconds: kanbanCalSecs,
-                                  subtitle:
-                                      '${kanbanIdeReportSpanLabelPt(kanbanDays.start!, kanbanDays.end!)} × $kanbanWorkHoursPerCalendarDay h',
-                                ),
-                              ?kanbanPill,
-                            ],
-                          ),
+                          if (ideSummary != null) ...[
+                            const SizedBox(height: 5),
+                            _TimePill(
+                              icon: Icons.terminal,
+                              label: 'IDE',
+                              color: const Color(0xFF1A237E),
+                              seconds: ideSummary.totalDurationSeconds,
+                            ),
+                          ],
                         ],
                       ),
                     );
@@ -675,34 +615,47 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                         children: [
                           const Text(
                             'Relatório por projeto',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Todos os projetos TG Work · Sessões = vezes que fechaste ou mudaste workspace · '
-                            'Kanban = dias desde "Em Execução" até 1.ª sessão IDE × 8 h/dia (no total).',
-                            style: TextStyle(fontSize: 11.5, height: 1.3, color: Colors.grey.shade700),
+                            'Todos os projetos TG Work · Tempo = só sessões '
+                            '(IDE automática ou manuais: VS Code, Cursor, montagem hardware/física). '
+                            'Usa + em cada linha para inserir.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              height: 1.3,
+                              color: Colors.grey.shade700,
+                            ),
                           ),
                           const Divider(height: 16),
-                          // Todos os projetos TG Work
                           for (int i = 0; i < allProjects.length; i++) ...[
                             projectRow(
                               allProjects[i],
                               summaryByProjectId[allProjects[i].id],
                             ),
-                            if (i < allProjects.length - 1 || unlinkedSummaries.isNotEmpty)
+                            if (i < allProjects.length - 1 ||
+                                unlinkedSummaries.isNotEmpty)
                               const Divider(height: 14),
                           ],
-                          // Workspaces sem projeto ligado
                           if (unlinkedSummaries.isNotEmpty) ...[
                             Padding(
                               padding: const EdgeInsets.only(bottom: 6, top: 2),
                               child: Text(
                                 'Workspaces sem projeto ligado',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600]),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[600],
+                                ),
                               ),
                             ),
-                            for (int i = 0; i < unlinkedSummaries.length; i++) ...[
+                            for (int i = 0;
+                                i < unlinkedSummaries.length;
+                                i++) ...[
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: Column(
@@ -710,24 +663,32 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                                   children: [
                                     Text(
                                       unlinkedSummaries[i].displayLabel,
-                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
                                       '${unlinkedSummaries[i].sessionCount} sessões · ${unlinkedSummaries[i].distinctLocalDays} dias',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[700],
+                                      ),
                                     ),
                                     const SizedBox(height: 5),
                                     _TimePill(
                                       icon: Icons.terminal,
                                       label: 'IDE',
                                       color: Colors.blueGrey.shade700,
-                                      seconds: unlinkedSummaries[i].totalDurationSeconds,
+                                      seconds: unlinkedSummaries[i]
+                                          .totalDurationSeconds,
                                     ),
                                   ],
                                 ),
                               ),
-                              if (i < unlinkedSummaries.length - 1) const Divider(height: 14),
+                              if (i < unlinkedSummaries.length - 1)
+                                const Divider(height: 14),
                             ],
                           ],
                         ],
@@ -735,11 +696,7 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                     ),
                   );
                 },
-              ), // watchAllProjectWorkedSeconds
-                    ],
-                  );
-                },
-              ), // watchProjectFirstExecutionDateMap
+              ),
               const SizedBox(height: 16),
               Text(
                 'Lista por dia',
@@ -1002,9 +959,9 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: Text(
-                  'O objectivo aqui é tempo IDE por projeto, número de sessões e dias em que trabalhaste — '
-                  'tanto no VS Code como no Cursor (a mesma extensão TG Work IDE envia os registos).\n'
-                  'Segue‑se um Kanban opcional por projeto; o relatório e a lista são a visão mais directa desses números.',
+                  'O objectivo aqui é tempo por projeto a partir de sessões '
+                  '(VS Code/Cursor automáticos ou sessões manuais: montagem hardware/física).\n'
+                  'O Kanban usa só esses tempos; podes inserir sessões no detalhe do projeto ou com + no relatório.',
                   style: TextStyle(
                     fontSize: 12.5,
                     height: 1.35,
@@ -1023,73 +980,17 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
   }
 }
 
-class _KanbanPeriodPill extends StatelessWidget {
-  final String label;
-  final String? duration;
-  final String? periodLabel;
-
-  const _KanbanPeriodPill({
-    required this.label,
-    required this.duration,
-    required this.periodLabel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = Colors.teal.shade700;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.view_kanban_outlined, size: 13, color: color),
-          const SizedBox(width: 4),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                duration != null ? '$label: $duration' : label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-              if (periodLabel != null)
-                Text(
-                  periodLabel!,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: color.withValues(alpha: 0.75),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _TimePill extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
   final int seconds;
-  final String? subtitle;
 
   const _TimePill({
     required this.icon,
     required this.label,
     required this.color,
     required this.seconds,
-    this.subtitle,
   });
 
   @override
@@ -1106,27 +1007,13 @@ class _TimePill extends StatelessWidget {
         children: [
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 4),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$label: ${formatWorkDurationSeconds(seconds)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-              if (subtitle != null)
-                Text(
-                  subtitle!,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: color.withValues(alpha: 0.75),
-                  ),
-                ),
-            ],
+          Text(
+            '$label: ${formatWorkDurationSeconds(seconds)}',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
           ),
         ],
       ),

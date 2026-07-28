@@ -20,6 +20,7 @@ import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../../widgets/project_work_timer_card.dart';
 import '../../widgets/project_workspace_timer_host.dart';
+import '../../widgets/project_ide_sessions_card.dart';
 import '../themes/themes_screen.dart';
 
 class ProjectDetailScreen extends StatefulWidget {
@@ -323,6 +324,13 @@ class _ProjectDetailBody extends StatelessWidget {
             service: service,
             projectStatus: project.status,
           ),
+        const SizedBox(height: 16),
+        ProjectIdeSessionsCard(
+          service: service,
+          projectId: project.id,
+          projectName: project.name,
+          userId: userId,
+        ),
         const SizedBox(height: 20),
         EntityNotesSection(
           parent: JournalNoteParent.project,

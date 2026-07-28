@@ -90,7 +90,9 @@ service cloud.firestore {
             request.resource.data.tgProjectId.size() > 0
           )
         );
-      allow delete: if false;
+      allow delete: if request.auth != null &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.source == 'manual';
     }
 
     match /user_ide_schedule/{userId}/cards/{cardId} {

@@ -14,6 +14,9 @@ class IdeSessionLog {
   final DateTime closedAt;
   final int durationSeconds;
 
+  /// `manual` quando criada na app; vazio/outro = extensão IDE.
+  final String source;
+
   IdeSessionLog({
     required this.id,
     required this.userId,
@@ -24,7 +27,10 @@ class IdeSessionLog {
     required this.openedAt,
     required this.closedAt,
     required this.durationSeconds,
+    this.source = '',
   });
+
+  bool get isManual => source.trim() == 'manual';
 
   IdeSessionLog copyWith({String? tgProjectId}) => IdeSessionLog(
         id: id,
@@ -36,6 +42,7 @@ class IdeSessionLog {
         openedAt: openedAt,
         closedAt: closedAt,
         durationSeconds: durationSeconds,
+        source: source,
       );
 
   static DateTime localCalendarDay(DateTime dt) =>
@@ -66,6 +73,7 @@ class IdeSessionLog {
       openedAt: ts(m['openedAt']),
       closedAt: ts(m['closedAt']),
       durationSeconds: seconds,
+      source: (m['source'] as String?) ?? '',
     );
   }
 

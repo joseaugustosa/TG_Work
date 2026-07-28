@@ -5,23 +5,18 @@ import 'package:flutter/material.dart';
 import '../models/ide_session_log.dart';
 import '../models/project.dart';
 import '../utils/ide_session_time_rollup.dart';
-import '../utils/kanban_ide_work_seconds.dart';
 import '../utils/work_timer_format.dart';
 
 /// Vista «progressiva»: anos → meses → dias, com uma barra horizontal por projeto.
-/// Suporta barras bicolores: azul escuro = IDE, verde = Kanban (dias × 8 h, igual ao relatório).
+/// Contabiliza apenas tempo IDE (sessões).
 class IdeSessionProgressiveChart extends StatefulWidget {
   final List<IdeSessionLog> logs;
   final List<Project> projects;
-
-  /// Mapa projectId → data de início de "Em Execução" (de status_changes).
-  final Map<String, DateTime> execDates;
 
   const IdeSessionProgressiveChart({
     super.key,
     required this.logs,
     required this.projects,
-    this.execDates = const {},
   });
 
   @override
@@ -40,58 +35,23 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
     'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
   ];
 
-  // Primeira sessão IDE por projectId (calculado uma vez, cache lazy)
-  Map<String, DateTime>? _firstIdeCache;
-  Map<String, DateTime> get _firstIdeByProjectId {
-    if (_firstIdeCache != null) return _firstIdeCache!;
-    final map = <String, DateTime>{};
-    for (final log in widget.logs) {
-      if (log.tgProjectId.isEmpty) continue;
-      final cur = map[log.tgProjectId];
-      if (cur == null || log.openedAt.isBefore(cur)) {
-        map[log.tgProjectId] = log.openedAt;
-      }
-    }
-    return _firstIdeCache = map;
-  }
-
-  @override
-  void didUpdateWidget(covariant IdeSessionProgressiveChart old) {
-    super.didUpdateWidget(old);
-    if (old.logs != widget.logs) _firstIdeCache = null;
-  }
-
-  /// Totais IDE + Kanban iguais ao «Relatório por projeto».
-  (int ideSecs, int kanbanSecs) _reportTotalsForKey(String key) {
+  /// Segundos IDE por chave `tg:{id}` ou `ws:{workspace}`.
+  int _ideSecondsForKey(String key) {
     if (key.startsWith('tg:')) {
       final pid = key.substring(3);
-      final project = widget.projects.where((p) => p.id == pid).firstOrNull;
-      if (project == null) return (0, 0);
-
-      final ideSecs = widget.logs
+      return widget.logs
           .where((l) => l.tgProjectId.trim() == pid)
           .fold<int>(0, (s, l) => s + l.durationSeconds);
-
-      final kanbanSecs = kanbanWorkSecondsForIdeReport(
-        projectCreatedAt: project.createdAt,
-        execStartDate: widget.execDates[pid],
-        firstIdeSessionAt: _firstIdeByProjectId[pid],
-        isExequivel: project.status == ProjectStatus.exequivel,
-      );
-      return (ideSecs, kanbanSecs);
     }
-
     if (key.startsWith('ws:')) {
       final ws = key.substring(3);
-      final ideSecs = widget.logs
+      return widget.logs
           .where((l) =>
               l.tgProjectId.trim().isEmpty &&
               l.workspaceName.trim() == ws)
           .fold<int>(0, (s, l) => s + l.durationSeconds);
-      return (ideSecs, 0);
     }
-
-    return (0, 0);
+    return 0;
   }
 
   String _projectLabel(String key) {
@@ -137,50 +97,44 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
   Widget _barsPerProject({
     bool showAllProjects = false,
   }) {
-    // Ordena pela mesma ordem do relatório: projetos TG Work por createdAt desc,
-    // workspaces sem projeto ligado no final.
     final sortedProjects = [...widget.projects]
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    // Entradas de projetos TG Work — totais iguais ao relatório
     final tgEntries = <String>[];
     for (final p in sortedProjects) {
       final key = 'tg:${p.id}';
-      final totals = _reportTotalsForKey(key);
-      if (totals.$1 + totals.$2 > 0 || showAllProjects) {
+      final secs = _ideSecondsForKey(key);
+      if (secs > 0 || showAllProjects) {
         tgEntries.add(key);
       }
     }
 
-    // Workspaces sem projeto ligado (ws:...) — no final
     final wsKeys = <String>{};
     for (final log in widget.logs) {
       if (log.tgProjectId.trim().isNotEmpty) continue;
       final key = 'ws:${log.workspaceName.trim()}';
-      wsKeys.add(key);
+      if (_ideSecondsForKey(key) > 0) wsKeys.add(key);
     }
-    final unlinkedKeys = wsKeys.toList()
-      ..sort((a, b) => _projectLabel(a).compareTo(_projectLabel(b)));
+    final wsEntries = wsKeys.toList()..sort();
 
-    final allKeys = [...tgEntries, ...unlinkedKeys];
+    final allKeys = [...tgEntries, ...wsEntries];
     if (allKeys.isEmpty) {
-      return Text('Sem tempo registado',
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600));
+      return Text(
+        'Sem tempo IDE neste período.',
+        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+      );
     }
 
-    // Totais por chave (mesma lógica do relatório)
-    final totalsByKey = <String, (int, int)>{
-      for (final key in allKeys) key: _reportTotalsForKey(key),
+    final secsByKey = <String, int>{
+      for (final key in allKeys) key: _ideSecondsForKey(key),
     };
-    final grandTotal = allKeys.fold<int>(
-      0, (s, key) => s + totalsByKey[key]!.$1 + totalsByKey[key]!.$2);
+    final grandTotal = allKeys.fold<int>(0, (s, key) => s + secsByKey[key]!);
     final effectiveTotal = math.max(1, grandTotal);
 
     const labelFlex = 5;
     const barFlex = 10;
     const valueFlex = 3;
     const ideColor = Color(0xFF1A237E);
-    const kanbanColor = Color(0xFF00796B);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -200,10 +154,10 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                     style: TextStyle(
                       fontSize: 11.5,
                       height: 1.2,
-                      color: totalsByKey[key]!.$1 + totalsByKey[key]!.$2 > 0
+                      color: secsByKey[key]! > 0
                           ? Colors.grey.shade900
                           : Colors.grey.shade500,
-                      fontWeight: totalsByKey[key]!.$1 + totalsByKey[key]!.$2 > 0
+                      fontWeight: secsByKey[key]! > 0
                           ? FontWeight.w600
                           : FontWeight.w400,
                     ),
@@ -212,10 +166,8 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                 Expanded(
                   flex: barFlex,
                   child: () {
-                    final ideSecs = totalsByKey[key]!.$1;
-                    final kanbanSecs = totalsByKey[key]!.$2;
-                    final entrySecs = ideSecs + kanbanSecs;
-                    if (entrySecs == 0) {
+                    final ideSecs = secsByKey[key]!;
+                    if (ideSecs == 0) {
                       return Align(
                         alignment: Alignment.centerLeft,
                         child: Text('sem sessões',
@@ -227,41 +179,25 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                     }
                     final tooltipLines = [
                       _projectLabel(key),
-                      if (ideSecs > 0) 'IDE: ${formatWorkDurationSeconds(ideSecs)}',
-                      if (kanbanSecs > 0) 'Kanban: ${formatWorkDurationSeconds(kanbanSecs)}',
-                      'Total: ${formatWorkDurationSeconds(entrySecs)}',
-                      '${((100 * entrySecs) / effectiveTotal).toStringAsFixed(1)}% do total',
+                      'IDE: ${formatWorkDurationSeconds(ideSecs)}',
+                      '${((100 * ideSecs) / effectiveTotal).toStringAsFixed(1)}% do total',
                     ].join('\n');
                     return Tooltip(
                       message: tooltipLines,
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          final totalWidth = math.max(
-                              3.0, constraints.maxWidth * entrySecs / effectiveTotal);
-                          final ideWidth = kanbanSecs > 0 && ideSecs > 0
-                              ? totalWidth * ideSecs / entrySecs
-                              : (ideSecs > 0 ? totalWidth : 0.0);
-                          final kanbanWidth = totalWidth - ideWidth;
+                          final width = math.max(
+                              3.0, constraints.maxWidth * ideSecs / effectiveTotal);
                           return SizedBox(
                             height: 18,
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(4),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (ideWidth > 0)
-                                      Container(
-                                          width: ideWidth,
-                                          height: 18,
-                                          color: ideColor),
-                                    if (kanbanWidth > 0)
-                                      Container(
-                                          width: kanbanWidth,
-                                          height: 18,
-                                          color: kanbanColor.withValues(alpha: 0.85)),
-                                  ],
+                                child: Container(
+                                  width: width,
+                                  height: 18,
+                                  color: ideColor,
                                 ),
                               ),
                             ),
@@ -274,60 +210,22 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                 Expanded(
                   flex: valueFlex,
                   child: () {
-                    final ideSecs = totalsByKey[key]!.$1;
-                    final kanbanSecs = totalsByKey[key]!.$2;
-                    final entrySecs = ideSecs + kanbanSecs;
-                    if (entrySecs == 0) {
+                    final ideSecs = secsByKey[key]!;
+                    if (ideSecs == 0) {
                       return Text('—',
                           textAlign: TextAlign.end,
                           style: TextStyle(fontSize: 11.5, color: Colors.grey.shade400));
                     }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          formatWorkDurationSeconds(entrySecs),
-                          textAlign: TextAlign.end,
-                          style: const TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF1A237E)),
-                        ),
-                        if (kanbanSecs > 0 && ideSecs > 0)
-                          Text(
-                            '${formatWorkDurationSeconds(ideSecs)} IDE · ${formatWorkDurationSeconds(kanbanSecs)} Kanban',
-                            textAlign: TextAlign.end,
-                            style: TextStyle(
-                                fontSize: 9.5,
-                                color: Colors.grey.shade600),
-                          ),
-                      ],
+                    return Text(
+                      formatWorkDurationSeconds(ideSecs),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1A237E)),
                     );
                   }(),
                 ),
-              ],
-            ),
-          ),
-        // Legenda (só quando há Kanban visível)
-        if (totalsByKey.values.any((t) => t.$2 > 0))
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Row(
-              children: [
-                Container(width: 10, height: 10,
-                    decoration: BoxDecoration(
-                        color: ideColor,
-                        borderRadius: BorderRadius.circular(2))),
-                const SizedBox(width: 4),
-                Text('IDE', style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
-                const SizedBox(width: 12),
-                Container(width: 10, height: 10,
-                    decoration: BoxDecoration(
-                        color: kanbanColor.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(2))),
-                const SizedBox(width: 4),
-                Text('Kanban', style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
               ],
             ),
           ),
@@ -342,8 +240,7 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
   }) {
     var totalSecs = 0;
     for (final p in widget.projects) {
-      final t = _reportTotalsForKey('tg:${p.id}');
-      totalSecs += t.$1 + t.$2;
+      totalSecs += _ideSecondsForKey('tg:${p.id}');
     }
 
     return Card(
@@ -462,8 +359,7 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             Text(
-              'Cada barra = total IDE + Kanban (igual ao relatório; Kanban = dias × 8 h). '
-              'Azul = IDE · verde = Kanban, proporcional dentro da barra.',
+              'Cada barra = tempo das sessões IDE neste período.',
               style: TextStyle(
                   fontSize: 11.5, height: 1.35, color: Colors.grey.shade700),
             ),
