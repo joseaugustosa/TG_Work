@@ -1,28 +1,17 @@
 import 'package:intl/intl.dart';
-import '../models/project.dart';
 
-bool projectIsClosedForBilling(Project p) {
-  return p.status == ProjectStatus.concluido || p.status == ProjectStatus.naoExequivel;
-}
-
-/// Tempo usado para faturação: desde a criação até agora (em curso) ou até a última atualização quando fechado.
-Duration billingDurationForProject(Project p) {
-  if (projectIsClosedForBilling(p)) {
-    final end = (p.updatedAt != null && p.updatedAt!.isAfter(p.createdAt))
-        ? p.updatedAt!
-        : p.createdAt;
-    var span = end.difference(p.createdAt);
-    if (span.isNegative) span = Duration.zero;
-    return span;
-  }
-  final span = DateTime.now().difference(p.createdAt);
-  return span.isNegative ? Duration.zero : span;
-}
-
+/// Despesa = horas trabalhadas × valor por hora (€).
 double estimatedExpenseEuros(Duration d, double hourlyRateEuros) {
   if (hourlyRateEuros <= 0) return 0;
+  if (d.isNegative || d == Duration.zero) return 0;
   final hours = d.inMicroseconds / Duration.microsecondsPerHour;
   return hours * hourlyRateEuros;
+}
+
+/// Variante directa a partir de segundos trabalhados.
+double estimatedExpenseFromSeconds(int seconds, double hourlyRateEuros) {
+  if (seconds <= 0) return 0;
+  return estimatedExpenseEuros(Duration(seconds: seconds), hourlyRateEuros);
 }
 
 String formatEurosPt(double amount) {

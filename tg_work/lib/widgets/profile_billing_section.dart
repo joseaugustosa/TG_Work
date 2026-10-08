@@ -3,11 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/project.dart';
 import '../models/user_billing_settings.dart';
 import '../models/active_work_clock.dart';
+import '../models/ide_session_log.dart';
 import '../services/firestore_service.dart';
 import '../utils/billing_calculation.dart';
 import '../utils/work_timer_format.dart';
 
-/// Escolha do projeto para contagem de tempo + taxa horária + despesa estimada (Perfil).
+/// Escolha do projeto + taxa horária; despesas = horas trabalhadas × €/h.
 class ProfileBillingSection extends StatefulWidget {
   const ProfileBillingSection({super.key});
 
@@ -85,6 +86,15 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
     }
   }
 
+  int _ideSecondsForProject(List<IdeSessionLog> logs, String projectId) {
+    var total = 0;
+    for (final log in logs) {
+      if (log.tgProjectId.trim() != projectId) continue;
+      if (log.durationSeconds > 0) total += log.durationSeconds;
+    }
+    return total;
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -130,10 +140,9 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Escolhe o projeto cujo tempo queres usar para estimar despesa, '
-                  'e o valor por hora (€). O tempo é o mesmo da contagem do Kanban: '
-                  'desde a criação até agora se o projeto está em curso, ou até à última '
-                  'atualização em Concluído / Não exequível.',
+                  'Despesa = horas trabalhadas × valor por hora (€). '
+                  'Contam as sessões (IDE / manuais) e o tempo do relógio TG Work — '
+                  'não o calendário desde a criação do projeto.',
                   style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.35),
                 ),
                 const SizedBox(height: 16),
@@ -182,7 +191,7 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.euro_outlined),
                   ),
-                  onChanged: (_) {},
+                  onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -221,113 +230,159 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
                           style: TextStyle(color: Colors.orange[800], fontSize: 13),
                         );
                       }
-                      return StreamBuilder<int>(
-                        stream: _firestore.watchProjectWorkedSeconds(uid, project.id),
-                        builder: (context, wsnap) {
-                          final stored = wsnap.data ?? 0;
+                      return StreamBuilder<IdeSessionLogsQuerySnapshot>(
+                        stream: _firestore.watchIdeSessionLogs(uid, limit: 2500),
+                        builder: (context, ideSnap) {
+                          final ideSecs = _ideSecondsForProject(
+                            ideSnap.data?.completedSessions ?? const [],
+                            project.id,
+                          );
 
-                          return StreamBuilder<ActiveWorkClock?>(
-                            stream: _firestore.watchActiveWorkClock(uid),
-                            builder: (context, cSnap) {
-                              final clock = cSnap.data;
-                              final activeHere =
-                                  clock?.projectId == project.id;
+                          return StreamBuilder<int>(
+                            stream: _firestore.watchProjectWorkedSeconds(
+                              uid,
+                              project.id,
+                            ),
+                            builder: (context, wsnap) {
+                              final stored = wsnap.data ?? 0;
 
-                              int workedTotal(int tick) {
-                                if (!activeHere || clock == null) {
-                                  return stored;
-                                }
-                                final seg = DateTime.now()
-                                    .difference(clock.segmentStartedAt)
-                                    .inSeconds
-                                    .clamp(0, 8640000);
-                                return stored + seg;
-                              }
+                              return StreamBuilder<ActiveWorkClock?>(
+                                stream: _firestore.watchActiveWorkClock(uid),
+                                builder: (context, cSnap) {
+                                  final clock = cSnap.data;
+                                  final activeHere =
+                                      clock?.projectId == project.id;
 
-                              Widget cardBody(int tick, int totalSecs) {
-                                final r = _parseRate(_rateController.text) ??
-                                    settings.hourlyRateEuros ??
-                                    0;
-                                final dur = billingDurationForProject(project);
-                                final expDates = estimatedExpenseEuros(dur, r);
-                                final expClock =
-                                    estimatedExpenseEuros(Duration(seconds: totalSecs), r);
+                                  int clockTotal(int tick) {
+                                    if (!activeHere || clock == null) {
+                                      return stored;
+                                    }
+                                    final seg = DateTime.now()
+                                        .difference(clock.segmentStartedAt)
+                                        .inSeconds
+                                        .clamp(0, 8640000);
+                                    return stored + seg;
+                                  }
 
-                                return Card(
-                                  elevation: 0,
-                                  color: const Color(0xFFE8EAF6),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(14),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          project.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                  Widget cardBody(int clockSecs) {
+                                    final r = _parseRate(_rateController.text) ??
+                                        settings.hourlyRateEuros ??
+                                        0;
+                                    final expSessions =
+                                        estimatedExpenseFromSeconds(ideSecs, r);
+                                    final expClock =
+                                        estimatedExpenseFromSeconds(clockSecs, r);
+                                    final totalSecs = ideSecs + clockSecs;
+                                    final expTotal =
+                                        estimatedExpenseFromSeconds(totalSecs, r);
+
+                                    return Card(
+                                      elevation: 0,
+                                      color: const Color(0xFFE8EAF6),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(14),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              project.name,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              'Tempo (sessões / datas): '
+                                              '${formatWorkDurationSeconds(ideSecs)}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[800],
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Tempo (relógio): '
+                                              '${formatWorkDurationSeconds(clockSecs)}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[900],
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            if (r > 0) ...[
+                                              Text(
+                                                'Despesa (sessões / datas): '
+                                                '${formatEurosPt(expSessions)}',
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Color(0xFF1A237E),
+                                                  height: 1.35,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Despesa (relógio): '
+                                                '${formatEurosPt(expClock)}',
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Color(0xFF1A237E),
+                                                  height: 1.35,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                'Total (sessões + relógio): '
+                                                '${formatEurosPt(expTotal)} '
+                                                '(${formatWorkDurationSeconds(totalSecs)} × '
+                                                '${r.toStringAsFixed(r == r.roundToDouble() ? 0 : 2)} €/h)',
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Color(0xFF0D1642),
+                                                  height: 1.35,
+                                                ),
+                                              ),
+                                            ] else
+                                              Text(
+                                                'Define um valor por hora acima para ver despesa '
+                                                '(horas trabalhadas × €/h).',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey[700],
+                                                  height: 1.35,
+                                                ),
+                                              ),
+                                          ],
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Tempo no workspace (por datas do projeto): '
-                                          '${describeBillingDurationShort(dur)} '
-                                          '(${projectIsClosedForBilling(project) ? 'fechado' : 'a decorrer'})',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[800],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Tempo com o relógio TG Work: '
-                                          '${formatWorkDurationSeconds(totalSecs)}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[900],
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          r > 0
-                                              ? 'Despesa (datas): ${formatEurosPt(expDates)}\n'
-                                                  'Despesa (relógio): ${formatEurosPt(expClock)}'
-                                              : 'Define um valor por hora acima para ver despesa estimada.',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                            color: r > 0
-                                                ? const Color(0xFF1A237E)
-                                                : Colors.grey[700],
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }
+                                      ),
+                                    );
+                                  }
 
-                              if (activeHere && clock != null) {
-                                return StreamBuilder<int>(
-                                  stream: Stream.periodic(
-                                    const Duration(seconds: 1),
-                                    (i) => i,
-                                  ),
-                                  initialData: 0,
-                                  builder: (context, tk) {
-                                    final t = workedTotal(tk.data ?? 0);
-                                    return cardBody(tk.data ?? 0, t);
-                                  },
-                                );
-                              }
-                              return cardBody(0, workedTotal(0));
+                                  if (activeHere && clock != null) {
+                                    return StreamBuilder<int>(
+                                      stream: Stream.periodic(
+                                        const Duration(seconds: 1),
+                                        (i) => i,
+                                      ),
+                                      initialData: 0,
+                                      builder: (context, tk) {
+                                        return cardBody(clockTotal(tk.data ?? 0));
+                                      },
+                                    );
+                                  }
+                                  return cardBody(clockTotal(0));
+                                },
+                              );
                             },
                           );
                         },
