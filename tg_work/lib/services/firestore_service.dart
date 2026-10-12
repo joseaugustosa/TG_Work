@@ -325,6 +325,20 @@ class FirestoreService {
     });
   }
 
+  /// Todos os desenvolvimentos de um projeto (campo denormalizado `projectId`).
+  Stream<List<Development>> getDevelopmentsByProject(String projectId) {
+    return _db
+        .collection('developments')
+        .where('projectId', isEqualTo: projectId)
+        .snapshots()
+        .map((snap) {
+      final items =
+          snap.docs.map((d) => Development.fromMap(d.data(), d.id)).toList();
+      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return items;
+    });
+  }
+
   Future<String> addDevelopment(
     Development dev, {
     required String userId,
@@ -455,6 +469,18 @@ class FirestoreService {
   }) async {
     await _journalNotesRef(parent, parentId).doc(noteId).update({
       'recordingUrl': recordingUrl,
+    });
+  }
+
+  /// Marca / desmarca uma nota como feita (visto na árvore do projeto).
+  Future<void> setJournalNoteDone({
+    required JournalNoteParent parent,
+    required String parentId,
+    required String noteId,
+    required bool done,
+  }) async {
+    await _journalNotesRef(parent, parentId).doc(noteId).update({
+      'done': done,
     });
   }
 

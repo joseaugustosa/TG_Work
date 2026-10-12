@@ -24,6 +24,9 @@ class JournalNote {
   final DateTime createdAt;
   final String? recordingUrl;
 
+  /// Marcado como feito na árvore do projeto (visto).
+  final bool done;
+
   JournalNote({
     required this.id,
     required this.text,
@@ -31,6 +34,7 @@ class JournalNote {
     required this.createdByName,
     required this.createdAt,
     this.recordingUrl,
+    this.done = false,
   });
 
   factory JournalNote.fromMap(Map<String, dynamic> map, String id) {
@@ -41,6 +45,7 @@ class JournalNote {
       createdByName: map['createdByName'] as String? ?? '',
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       recordingUrl: map['recordingUrl'] as String?,
+      done: map['done'] == true,
     );
   }
 
@@ -50,7 +55,18 @@ class JournalNote {
       'createdBy': createdBy,
       'createdByName': createdByName,
       'createdAt': Timestamp.fromDate(createdAt),
+      'done': done,
       if (recordingUrl != null) 'recordingUrl': recordingUrl,
     };
   }
+
+  JournalNote copyWith({bool? done}) => JournalNote(
+        id: id,
+        text: text,
+        createdBy: createdBy,
+        createdByName: createdByName,
+        createdAt: createdAt,
+        recordingUrl: recordingUrl,
+        done: done ?? this.done,
+      );
 }

@@ -22,6 +22,7 @@ import '../../widgets/project_work_timer_card.dart';
 import '../../widgets/project_workspace_timer_host.dart';
 import '../../widgets/project_ide_sessions_card.dart';
 import '../themes/themes_screen.dart';
+import 'project_tree_screen.dart';
 
 class ProjectDetailScreen extends StatefulWidget {
   final String projectId;
@@ -340,6 +341,23 @@ class _ProjectDetailBody extends StatelessWidget {
           userName: userName,
         ),
         const SizedBox(height: 12),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: Color(0xFF1A237E)),
+            foregroundColor: const Color(0xFF1A237E),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          icon: const Icon(Icons.account_tree_outlined),
+          label: const Text('Árvore do projeto'),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ProjectTreeScreen(project: project),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
         OutlinedButton.icon(
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: Color(0xFF1A237E)),
