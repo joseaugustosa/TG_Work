@@ -5,6 +5,7 @@ import 'ide_agenda/ide_agenda_screen.dart';
 import 'projects/projects_screen.dart';
 import 'tree/tree_tab_screen.dart';
 import '../services/auth_service.dart';
+import '../utils/app_update_prompt.dart';
 import '../utils/user_display.dart';
 import '../widgets/ide_agenda_projects_link_host.dart';
 
@@ -31,6 +32,10 @@ class _HomeShellScreenState extends State<HomeShellScreen>
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() => setState(() {}));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      checkAndPromptAppUpdate(context);
+    });
   }
 
   @override
