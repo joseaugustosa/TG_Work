@@ -11,5 +11,6 @@
   "tgWorkIde.autoResolveFirestoreProject": true,
   "tgWorkIde.firebaseApiKey": "AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw",
   "tgWorkIde.firebaseProjectId": "tg-work-2026",
-  "tgWorkIde.minSessionSeconds": 30
+  "tgWorkIde.minSessionSeconds": 30,
+  "cmake.sourceDirectory": "C:/Users/Utilizador/github-repos/TG_Work/tg_work/windows"
 }
