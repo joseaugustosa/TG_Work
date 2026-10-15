@@ -61,6 +61,18 @@ class Project {
   /// Pasta (ou `.code-workspace`) no PC onde abres este projeto para a extensão IDE contabilizar sessão por abrir/fecho.
   final String ideCountingFolderFsPath;
 
+  /// ID do tipo criado pelo utilizador (`project_types`).
+  final String projectTypeId;
+
+  /// Nome do tipo (cópia para listagens sem join).
+  final String projectTypeName;
+
+  /// ID do subtipo (`project_subtypes`).
+  final String projectSubtypeId;
+
+  /// Nome do subtipo (cópia para listagens).
+  final String projectSubtypeName;
+
   Project({
     required this.id,
     required this.name,
@@ -74,12 +86,76 @@ class Project {
     this.updatedByName,
     this.updatedAt,
     this.ideCountingFolderFsPath = '',
+    this.projectTypeId = '',
+    this.projectTypeName = '',
+    this.projectSubtypeId = '',
+    this.projectSubtypeName = '',
   });
+
+  String get classificationLabel {
+    final t = projectTypeName.trim();
+    final s = projectSubtypeName.trim();
+    if (t.isEmpty) return '';
+    if (s.isEmpty) return t;
+    return '$t · $s';
+  }
+
+  Project copyWith({
+    String? id,
+    String? name,
+    String? description,
+    String? descriptionRecordingUrl,
+    bool clearDescriptionRecordingUrl = false,
+    ProjectStatus? status,
+    String? createdBy,
+    String? createdByName,
+    DateTime? createdAt,
+    String? updatedBy,
+    String? updatedByName,
+    DateTime? updatedAt,
+    String? ideCountingFolderFsPath,
+    String? projectTypeId,
+    String? projectTypeName,
+    String? projectSubtypeId,
+    String? projectSubtypeName,
+  }) {
+    return Project(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      descriptionRecordingUrl: clearDescriptionRecordingUrl
+          ? null
+          : (descriptionRecordingUrl ?? this.descriptionRecordingUrl),
+      status: status ?? this.status,
+      createdBy: createdBy ?? this.createdBy,
+      createdByName: createdByName ?? this.createdByName,
+      createdAt: createdAt ?? this.createdAt,
+      updatedBy: updatedBy ?? this.updatedBy,
+      updatedByName: updatedByName ?? this.updatedByName,
+      updatedAt: updatedAt ?? this.updatedAt,
+      ideCountingFolderFsPath:
+          ideCountingFolderFsPath ?? this.ideCountingFolderFsPath,
+      projectTypeId: projectTypeId ?? this.projectTypeId,
+      projectTypeName: projectTypeName ?? this.projectTypeName,
+      projectSubtypeId: projectSubtypeId ?? this.projectSubtypeId,
+      projectSubtypeName: projectSubtypeName ?? this.projectSubtypeName,
+    );
+  }
 
   factory Project.fromMap(Map<String, dynamic> map, String id) {
     final rawIde = map['ideCountingFolderFsPath'];
     final ide =
         rawIde is String ? rawIde.trim() : (rawIde is num ? '$rawIde' : '').trim();
+    // Compat: campos antigos `projectType` / `projectSubtype` como nomes.
+    final typeId = (map['projectTypeId'] as String?)?.trim() ?? '';
+    final typeName = (map['projectTypeName'] as String?)?.trim().isNotEmpty == true
+        ? (map['projectTypeName'] as String).trim()
+        : ((map['projectType'] as String?)?.trim() ?? '');
+    final subtypeId = (map['projectSubtypeId'] as String?)?.trim() ?? '';
+    final subtypeName =
+        (map['projectSubtypeName'] as String?)?.trim().isNotEmpty == true
+            ? (map['projectSubtypeName'] as String).trim()
+            : ((map['projectSubtype'] as String?)?.trim() ?? '');
     return Project(
       id: id,
       name: map['name'] ?? '',
@@ -93,6 +169,10 @@ class Project {
       updatedByName: map['updatedByName'],
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
       ideCountingFolderFsPath: ide,
+      projectTypeId: typeId,
+      projectTypeName: typeName,
+      projectSubtypeId: subtypeId,
+      projectSubtypeName: subtypeName,
     );
   }
 
@@ -100,7 +180,8 @@ class Project {
     return {
       'name': name,
       'description': description,
-      if (descriptionRecordingUrl != null) 'descriptionRecordingUrl': descriptionRecordingUrl,
+      if (descriptionRecordingUrl != null)
+        'descriptionRecordingUrl': descriptionRecordingUrl,
       'status': status.key,
       'createdBy': createdBy,
       'createdByName': createdByName,
@@ -110,6 +191,13 @@ class Project {
       if (updatedAt != null) 'updatedAt': updatedAt,
       if (ideCountingFolderFsPath.trim().isNotEmpty)
         'ideCountingFolderFsPath': ideCountingFolderFsPath.trim(),
+      if (projectTypeId.trim().isNotEmpty) 'projectTypeId': projectTypeId.trim(),
+      if (projectTypeName.trim().isNotEmpty)
+        'projectTypeName': projectTypeName.trim(),
+      if (projectSubtypeId.trim().isNotEmpty)
+        'projectSubtypeId': projectSubtypeId.trim(),
+      if (projectSubtypeName.trim().isNotEmpty)
+        'projectSubtypeName': projectSubtypeName.trim(),
     };
   }
 }

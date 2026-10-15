@@ -4,6 +4,7 @@ import 'note_recording_storage.dart';
 import '../utils/user_display.dart';
 import '../utils/entity_change_summary.dart';
 import '../models/project.dart';
+import '../models/project_type.dart';
 import '../models/theme_item.dart';
 import '../models/development.dart';
 import '../models/journal_note.dart';
@@ -127,6 +128,43 @@ class FirestoreService {
     }
   }
 
+  static void _patchProjectClassification(
+    Map<String, dynamic> map,
+    Project oldProject,
+    Project updated,
+  ) {
+    void patch(String field, String prev, String next) {
+      if (prev == next) return;
+      if (next.isEmpty) {
+        map[field] = FieldValue.delete();
+      }
+    }
+
+    patch(
+      'projectTypeId',
+      oldProject.projectTypeId.trim(),
+      updated.projectTypeId.trim(),
+    );
+    patch(
+      'projectTypeName',
+      oldProject.projectTypeName.trim(),
+      updated.projectTypeName.trim(),
+    );
+    patch(
+      'projectSubtypeId',
+      oldProject.projectSubtypeId.trim(),
+      updated.projectSubtypeId.trim(),
+    );
+    patch(
+      'projectSubtypeName',
+      oldProject.projectSubtypeName.trim(),
+      updated.projectSubtypeName.trim(),
+    );
+    // Limpar campos legacy se existirem
+    map['projectType'] = FieldValue.delete();
+    map['projectSubtype'] = FieldValue.delete();
+  }
+
   // ─── Projects ────────────────────────────────────────────────────────────
 
   Stream<List<Project>> getProjects() {
@@ -166,16 +204,7 @@ class FirestoreService {
   }) async {
     final now = DateTime.now();
     final actorName = normalizeStoredActorName(userName);
-    final updated = Project(
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      descriptionRecordingUrl: project.descriptionRecordingUrl,
-      status: project.status,
-      ideCountingFolderFsPath: project.ideCountingFolderFsPath,
-      createdBy: project.createdBy,
-      createdByName: project.createdByName,
-      createdAt: project.createdAt,
+    final updated = project.copyWith(
       updatedBy: userId,
       updatedByName: actorName,
       updatedAt: now,
@@ -188,6 +217,7 @@ class FirestoreService {
       updated.descriptionRecordingUrl,
     );
     _patchIdeCountingFolderFsPath(map, oldProject, updated);
+    _patchProjectClassification(map, oldProject, updated);
     await _db.collection('projects').doc(project.id).update(map);
 
     final summary =
@@ -541,6 +571,92 @@ class FirestoreService {
       list.sort((a, b) => b.changedAt.compareTo(a.changedAt));
       return list;
     });
+  }
+
+  // ─── Tipos / subtipos de projeto (criados pelo utilizador) ───────────────
+
+  Stream<List<ProjectType>> watchProjectTypes() {
+    return _db.collection('project_types').snapshots().map((snap) {
+      final list =
+          snap.docs.map((d) => ProjectType.fromMap(d.data(), d.id)).toList();
+      list.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return list;
+    });
+  }
+
+  Stream<List<ProjectSubtype>> watchProjectSubtypes({String? typeId}) {
+    Query<Map<String, dynamic>> q = _db.collection('project_subtypes');
+    final tid = typeId?.trim() ?? '';
+    if (tid.isNotEmpty) {
+      q = q.where('typeId', isEqualTo: tid);
+    }
+    return q.snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => ProjectSubtype.fromMap(d.data(), d.id))
+          .toList();
+      list.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return list;
+    });
+  }
+
+  Future<String> addProjectType({
+    required String name,
+    required String userId,
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty) throw ArgumentError('name');
+    final ref = await _db.collection('project_types').add(
+          ProjectType(
+            id: '',
+            name: n,
+            createdBy: userId,
+            createdAt: DateTime.now(),
+          ).toCreateMap(),
+        );
+    return ref.id;
+  }
+
+  Future<String> addProjectSubtype({
+    required String typeId,
+    required String name,
+    required String userId,
+  }) async {
+    final tid = typeId.trim();
+    final n = name.trim();
+    if (tid.isEmpty || n.isEmpty) throw ArgumentError('typeId/name');
+    final ref = await _db.collection('project_subtypes').add(
+          ProjectSubtype(
+            id: '',
+            typeId: tid,
+            name: n,
+            createdBy: userId,
+            createdAt: DateTime.now(),
+          ).toCreateMap(),
+        );
+    return ref.id;
+  }
+
+  Future<void> deleteProjectType(String typeId) async {
+    final tid = typeId.trim();
+    if (tid.isEmpty) return;
+    final subs = await _db
+        .collection('project_subtypes')
+        .where('typeId', isEqualTo: tid)
+        .get();
+    for (final d in subs.docs) {
+      await d.reference.delete();
+    }
+    await _db.collection('project_types').doc(tid).delete();
+  }
+
+  Future<void> deleteProjectSubtype(String subtypeId) async {
+    final id = subtypeId.trim();
+    if (id.isEmpty) return;
+    await _db.collection('project_subtypes').doc(id).delete();
   }
 
   // ─── Preferências de faturação (documento `user_settings/{userId}`) ─────

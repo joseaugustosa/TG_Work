@@ -16,6 +16,7 @@ import '../../models/journal_note.dart';
 import '../../widgets/entity_notes_section.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/note_recording_playback.dart';
+import '../../widgets/project_classification_fields.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../../widgets/project_work_timer_card.dart';
@@ -64,6 +65,10 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         TextEditingController(text: project.ideCountingFolderFsPath);
     final recordingHolder = NoteRecordingHolder(originalUrl: project.descriptionRecordingUrl);
     ProjectStatus status = project.status;
+    String typeId = project.projectTypeId;
+    String typeName = project.projectTypeName;
+    String subtypeId = project.projectSubtypeId;
+    String subtypeName = project.projectSubtypeName;
 
     try {
       await showDialog(
@@ -92,6 +97,22 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   NoteRecordingEditor(
                     holder: recordingHolder,
                     onChanged: () => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  ProjectClassificationFields(
+                    service: _service,
+                    typeId: typeId.isEmpty ? null : typeId,
+                    subtypeId: subtypeId.isEmpty ? null : subtypeId,
+                    onTypeChanged: (t) => setState(() {
+                      typeId = t?.id ?? '';
+                      typeName = t?.name ?? '';
+                      subtypeId = '';
+                      subtypeName = '';
+                    }),
+                    onSubtypeChanged: (s) => setState(() {
+                      subtypeId = s?.id ?? '';
+                      subtypeName = s?.name ?? '';
+                    }),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -178,16 +199,16 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     uploadPending: (f) =>
                         NoteRecordingStorage.uploadProjectNote(project.id, f),
                   );
-                  final updated = Project(
-                    id: project.id,
+                  final updated = project.copyWith(
                     name: nameController.text.trim(),
                     description: descController.text.trim(),
                     descriptionRecordingUrl: audioUrl,
                     status: status,
                     ideCountingFolderFsPath: idePathController.text.trim(),
-                    createdBy: project.createdBy,
-                    createdByName: project.createdByName,
-                    createdAt: project.createdAt,
+                    projectTypeId: typeId,
+                    projectTypeName: typeName,
+                    projectSubtypeId: subtypeId,
+                    projectSubtypeName: subtypeName,
                   );
                   await _service.updateProject(
                     updated,
@@ -466,6 +487,24 @@ class _InfoCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (project.classificationLabel.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.category_outlined, size: 16, color: Colors.grey[600]),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      project.classificationLabel,
+                      style: TextStyle(
+                        color: Colors.grey[800],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (project.description.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(project.description, style: TextStyle(color: Colors.grey[700])),

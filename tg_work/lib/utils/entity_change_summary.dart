@@ -16,6 +16,14 @@ String? summarizeProjectEdit(Project old, Project next) {
   if (old.ideCountingFolderFsPath.trim() != next.ideCountingFolderFsPath.trim()) {
     p.add('pasta IDE / tempo');
   }
+  if (old.projectTypeId.trim() != next.projectTypeId.trim() ||
+      old.projectTypeName.trim() != next.projectTypeName.trim()) {
+    p.add('tipo');
+  }
+  if (old.projectSubtypeId.trim() != next.projectSubtypeId.trim() ||
+      old.projectSubtypeName.trim() != next.projectSubtypeName.trim()) {
+    p.add('subtipo');
+  }
   if (p.isEmpty) return null;
   return 'Alteração: ${p.join('; ')}';
 }

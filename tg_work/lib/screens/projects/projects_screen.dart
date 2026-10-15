@@ -12,6 +12,7 @@ import '../../utils/windows_firestore_compat.dart';
 import '../../utils/kanban_time_summary.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/note_recording_editor.dart';
+import '../../widgets/project_classification_fields.dart';
 import '../../widgets/status_history_sheet.dart';
 import '../../widgets/status_kanban_board.dart';
 import '../../widgets/voice_dictation_text_field.dart';
@@ -26,6 +27,8 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _kanban = false;
+  String? _filterTypeId;
+  String? _filterSubtypeId;
 
   late final FirestoreService _service;
   late final Stream<List<Project>> _projectsStream;
@@ -62,45 +65,66 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                child: showKanbanUi
-                    ? Align(
-                        alignment: Alignment.centerRight,
-                        child: SegmentedButton<bool>(
-                          segments: const [
-                            ButtonSegment<bool>(
-                              value: false,
-                              label: Text('Lista'),
-                              icon: Icon(Icons.view_list_outlined, size: 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ProjectClassificationFilters(
+                      service: _service,
+                      typeId: _filterTypeId,
+                      subtypeId: _filterSubtypeId,
+                      onTypeChanged: (v) => setState(() {
+                        _filterTypeId = v;
+                        _filterSubtypeId = null;
+                      }),
+                      onSubtypeChanged: (v) =>
+                          setState(() => _filterSubtypeId = v),
+                    ),
+                    const SizedBox(height: 8),
+                    showKanbanUi
+                        ? Align(
+                            alignment: Alignment.centerRight,
+                            child: SegmentedButton<bool>(
+                              segments: const [
+                                ButtonSegment<bool>(
+                                  value: false,
+                                  label: Text('Lista'),
+                                  icon: Icon(Icons.view_list_outlined, size: 18),
+                                ),
+                                ButtonSegment<bool>(
+                                  value: true,
+                                  label: Text('Kanban'),
+                                  icon:
+                                      Icon(Icons.view_kanban_outlined, size: 18),
+                                ),
+                              ],
+                              selected: {_kanban},
+                              onSelectionChanged: (s) =>
+                                  setState(() => _kanban = s.first),
+                              style: ButtonStyle(
+                                visualDensity: VisualDensity.compact,
+                                foregroundColor:
+                                    WidgetStateProperty.resolveWith((states) {
+                                  if (states.contains(WidgetState.selected)) {
+                                    return const Color(0xFF1A237E);
+                                  }
+                                  return Colors.grey[700];
+                                }),
+                              ),
                             ),
-                            ButtonSegment<bool>(
-                              value: true,
-                              label: Text('Kanban'),
-                              icon: Icon(Icons.view_kanban_outlined, size: 18),
+                          )
+                        : Align(
+                            alignment: Alignment.centerRight,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                'Lista (Kanban só neste momento em Android / iOS)',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey[700]),
+                              ),
                             ),
-                          ],
-                          selected: {_kanban},
-                          onSelectionChanged: (s) => setState(() => _kanban = s.first),
-                          style: ButtonStyle(
-                            visualDensity: VisualDensity.compact,
-                            foregroundColor: WidgetStateProperty.resolveWith((states) {
-                              if (states.contains(WidgetState.selected)) {
-                                return const Color(0xFF1A237E);
-                              }
-                              return Colors.grey[700];
-                            }),
                           ),
-                        ),
-                      )
-                    : Align(
-                        alignment: Alignment.centerRight,
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            'Lista (Kanban só neste momento em Android / iOS)',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                          ),
-                        ),
-                      ),
+                  ],
+                ),
               ),
               Expanded(
                 child: StreamBuilder<List<Project>>(
@@ -112,8 +136,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     if (snapshot.hasError) {
                       return Center(child: Text('Erro: ${snapshot.error}'));
                     }
-                    final projects = snapshot.data ?? [];
-                    if (projects.isEmpty) {
+                    final allProjects = snapshot.data ?? [];
+                    final projects = filterProjectsByClassification(
+                      allProjects,
+                      typeId: _filterTypeId,
+                      subtypeId: _filterSubtypeId,
+                    );
+                    if (allProjects.isEmpty) {
                       return const Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -129,6 +158,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         ),
                       );
                     }
+                    if (projects.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'Nenhum projeto com este tipo / subtipo.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[700], fontSize: 15),
+                        ),
+                      );
+                    }
                     if (useKanbanBoard) {
                       return StatusKanbanBoard<Project, ProjectStatus>(
                         columns: ProjectStatus.values,
@@ -140,23 +178,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         onItemMoved: (project, status) async {
                           if (project.status == status) return;
                           await _service.updateProject(
-                            Project(
-                              id: project.id,
-                              name: project.name,
-                              description: project.description,
-                              descriptionRecordingUrl: project.descriptionRecordingUrl,
-                              status: status,
-                              ideCountingFolderFsPath: project.ideCountingFolderFsPath,
-                              createdBy: project.createdBy,
-                              createdByName: project.createdByName,
-                              createdAt: project.createdAt,
-                            ),
+                            project.copyWith(status: status),
                             oldProject: project,
                             userId: user?.uid ?? '',
                             userName: userName,
                           );
                         },
                         cardBuilder: (context, project) {
+                          final classLabel = project.classificationLabel;
                           return Card(
                             elevation: 2,
                             shape: RoundedRectangleBorder(
@@ -247,6 +276,17 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                         ),
                                       ],
                                     ),
+                                    if (classLabel.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        classLabel,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[700],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
                                     if (project.description.isNotEmpty) ...[
                                       const SizedBox(height: 8),
                                       Text(
@@ -295,6 +335,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       itemCount: projects.length,
                       itemBuilder: (context, index) {
                         final project = projects[index];
+                        final classLabel = project.classificationLabel;
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
                           shape: RoundedRectangleBorder(
@@ -314,6 +355,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                if (classLabel.isNotEmpty)
+                                  Text(
+                                    classLabel,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[700],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 if (project.description.isNotEmpty)
                                   Text(project.description),
                                 _AuditLine(project: project),
@@ -414,6 +464,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         TextEditingController(text: project?.ideCountingFolderFsPath ?? '');
     final recordingHolder = NoteRecordingHolder(originalUrl: project?.descriptionRecordingUrl);
     ProjectStatus status = project?.status ?? ProjectStatus.exequivel;
+    String typeId = project?.projectTypeId ?? '';
+    String typeName = project?.projectTypeName ?? '';
+    String subtypeId = project?.projectSubtypeId ?? '';
+    String subtypeName = project?.projectSubtypeName ?? '';
 
     showDialog(
       context: context,
@@ -439,6 +493,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 NoteRecordingEditor(
                   holder: recordingHolder,
                   onChanged: () => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+                ProjectClassificationFields(
+                  service: service,
+                  typeId: typeId.isEmpty ? null : typeId,
+                  subtypeId: subtypeId.isEmpty ? null : subtypeId,
+                  onTypeChanged: (t) => setState(() {
+                    typeId = t?.id ?? '';
+                    typeName = t?.name ?? '';
+                    subtypeId = '';
+                    subtypeName = '';
+                  }),
+                  onSubtypeChanged: (s) => setState(() {
+                    subtypeId = s?.id ?? '';
+                    subtypeName = s?.name ?? '';
+                  }),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -526,6 +596,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   createdBy: project?.createdBy ?? userId,
                   createdByName: project?.createdByName ?? userName,
                   createdAt: project?.createdAt ?? DateTime.now(),
+                  projectTypeId: typeId,
+                  projectTypeName: typeName,
+                  projectSubtypeId: subtypeId,
+                  projectSubtypeName: subtypeName,
                 );
                 if (project == null) {
                   final newId = await service.addProject(
@@ -533,33 +607,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     userId: userId,
                     userName: userName,
                   );
-                  final added = Project(
-                    id: newId,
-                    name: base.name,
-                    description: base.description,
-                    status: base.status,
-                    ideCountingFolderFsPath: base.ideCountingFolderFsPath,
-                    createdBy: base.createdBy,
-                    createdByName: base.createdByName,
-                    createdAt: base.createdAt,
-                  );
+                  final added = base.copyWith(id: newId);
                   final audioUrl = await NoteRecordingStorage.resolveOnSave(
                     holder: recordingHolder,
                     uploadPending: (f) => NoteRecordingStorage.uploadProjectNote(newId, f),
                   );
                   if (audioUrl != null) {
                     await service.updateProject(
-                      Project(
-                        id: newId,
-                        name: added.name,
-                        description: added.description,
-                        descriptionRecordingUrl: audioUrl,
-                        status: added.status,
-                        ideCountingFolderFsPath: added.ideCountingFolderFsPath,
-                        createdBy: added.createdBy,
-                        createdByName: added.createdByName,
-                        createdAt: added.createdAt,
-                      ),
+                      added.copyWith(descriptionRecordingUrl: audioUrl),
                       oldProject: added,
                       userId: userId,
                       userName: userName,
@@ -571,16 +626,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     uploadPending: (f) => NoteRecordingStorage.uploadProjectNote(project.id, f),
                   );
                   await service.updateProject(
-                    Project(
+                    base.copyWith(
                       id: project.id,
-                      name: base.name,
-                      description: base.description,
                       descriptionRecordingUrl: audioUrl,
-                      status: base.status,
-                      ideCountingFolderFsPath: base.ideCountingFolderFsPath,
-                      createdBy: base.createdBy,
-                      createdByName: base.createdByName,
-                      createdAt: base.createdAt,
                     ),
                     oldProject: project,
                     userId: userId,

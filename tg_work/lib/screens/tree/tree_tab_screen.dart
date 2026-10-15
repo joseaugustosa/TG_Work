@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/project.dart';
 import '../../services/firestore_service.dart';
+import '../../widgets/project_classification_fields.dart';
 import '../../widgets/project_tree_panel.dart';
 
 /// Aba «Árvore»: todos os projetos com dependências e vistos de execução/conclusão.
@@ -16,6 +17,8 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
   late final FirestoreService _service;
   late final Stream<List<Project>> _projectsStream;
   String? _filterProjectId;
+  String? _filterTypeId;
+  String? _filterSubtypeId;
 
   @override
   void initState() {
@@ -45,8 +48,8 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final projects = snap.data ?? [];
-        if (projects.isEmpty) {
+        final allProjects = snap.data ?? [];
+        if (allProjects.isEmpty) {
           return Center(
             child: Text(
               'Ainda não há projetos.\nCria um na aba Projetos.',
@@ -56,12 +59,17 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
           );
         }
 
+        final byClass = filterProjectsByClassification(
+          allProjects,
+          typeId: _filterTypeId,
+          subtypeId: _filterSubtypeId,
+        );
         final filterOk = _filterProjectId != null &&
-            projects.any((p) => p.id == _filterProjectId);
+            byClass.any((p) => p.id == _filterProjectId);
         final effectiveFilter = filterOk ? _filterProjectId : null;
         final filtered = effectiveFilter == null
-            ? projects
-            : projects.where((p) => p.id == effectiveFilter).toList();
+            ? byClass
+            : byClass.where((p) => p.id == effectiveFilter).toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -91,6 +99,21 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  ProjectClassificationFilters(
+                    service: _service,
+                    typeId: _filterTypeId,
+                    subtypeId: _filterSubtypeId,
+                    onTypeChanged: (v) => setState(() {
+                      _filterTypeId = v;
+                      _filterSubtypeId = null;
+                      _filterProjectId = null;
+                    }),
+                    onSubtypeChanged: (v) => setState(() {
+                      _filterSubtypeId = v;
+                      _filterProjectId = null;
+                    }),
+                  ),
+                  const SizedBox(height: 8),
                   DropdownButtonFormField<String?>(
                     key: ValueKey<String?>(effectiveFilter),
                     initialValue: effectiveFilter,
@@ -105,11 +128,13 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
                         value: null,
                         child: Text('Todos os projetos'),
                       ),
-                      ...projects.map(
+                      ...byClass.map(
                         (p) => DropdownMenuItem<String?>(
                           value: p.id,
                           child: Text(
-                            p.name,
+                            p.classificationLabel.isEmpty
+                                ? p.name
+                                : '${p.name} (${p.classificationLabel})',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -123,19 +148,26 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
             ),
             const SizedBox(height: 8),
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 28),
-                itemCount: filtered.length,
-                itemBuilder: (context, index) {
-                  final project = filtered[index];
-                  return ProjectTreePanel(
-                    key: ValueKey(project.id),
-                    project: project,
-                    initiallyExpanded:
-                        filtered.length == 1 || index == 0,
-                  );
-                },
-              ),
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Nenhum projeto com estes filtros.',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 28),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final project = filtered[index];
+                        return ProjectTreePanel(
+                          key: ValueKey(project.id),
+                          project: project,
+                          initiallyExpanded:
+                              filtered.length == 1 || index == 0,
+                        );
+                      },
+                    ),
             ),
           ],
         );
