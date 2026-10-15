@@ -3,13 +3,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'auth/profile_screen.dart';
 import 'ide_agenda/ide_agenda_screen.dart';
 import 'projects/projects_screen.dart';
+import 'settings/settings_screen.dart';
 import 'tree/tree_tab_screen.dart';
 import '../services/auth_service.dart';
 import '../utils/app_update_prompt.dart';
 import '../utils/user_display.dart';
 import '../widgets/ide_agenda_projects_link_host.dart';
 
-/// Shell principal: mesmas secções (Projetos, Perfil) em todos os sistemas.
+/// Shell principal: Projetos, Árvore, Agenda, Definições, Perfil.
 /// Em ecrã largo (ex.: Windows) mostra barra lateral; no telemóvel usa abas no AppBar.
 /// Deslize entre abas igual ao Android (`BouncingScrollPhysics`).
 class HomeShellScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _tabController.addListener(() => setState(() {}));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -54,6 +55,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
         ProjectsScreen(),
         TreeTabScreen(),
         IdeAgendaScreen(),
+        SettingsScreen(),
         ProfileScreen(embedded: true),
       ],
     );
@@ -71,6 +73,7 @@ class _HomeShellScreenState extends State<HomeShellScreen>
         Tab(icon: Icon(Icons.folder_outlined), text: 'Projetos'),
         Tab(icon: Icon(Icons.account_tree_outlined), text: 'Árvore'),
         Tab(icon: Icon(Icons.desktop_windows_outlined), text: 'Agenda IDE'),
+        Tab(icon: Icon(Icons.settings_outlined), text: 'Definições'),
         Tab(icon: Icon(Icons.person_outline), text: 'Perfil'),
       ],
     );
@@ -157,6 +160,11 @@ class _HomeShellScreenState extends State<HomeShellScreen>
                           icon: Icon(Icons.desktop_windows_outlined),
                           selectedIcon: Icon(Icons.desktop_windows),
                           label: Text('Agenda IDE'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.settings_outlined),
+                          selectedIcon: Icon(Icons.settings),
+                          label: Text('Definições'),
                         ),
                         NavigationRailDestination(
                           icon: Icon(Icons.person_outline),

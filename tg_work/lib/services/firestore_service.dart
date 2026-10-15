@@ -640,6 +640,20 @@ class FirestoreService {
     return ref.id;
   }
 
+  Future<void> renameProjectType(String typeId, String name) async {
+    final tid = typeId.trim();
+    final n = name.trim();
+    if (tid.isEmpty || n.isEmpty) return;
+    await _db.collection('project_types').doc(tid).update({'name': n});
+  }
+
+  Future<void> renameProjectSubtype(String subtypeId, String name) async {
+    final id = subtypeId.trim();
+    final n = name.trim();
+    if (id.isEmpty || n.isEmpty) return;
+    await _db.collection('project_subtypes').doc(id).update({'name': n});
+  }
+
   Future<void> deleteProjectType(String typeId) async {
     final tid = typeId.trim();
     if (tid.isEmpty) return;

@@ -1,11 +1,10 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/project.dart';
 import '../models/project_type.dart';
 import '../services/firestore_service.dart';
 
-/// Dropdowns Tipo / Subtipo com opção de criar novos (pelo utilizador).
+/// Dropdowns Tipo / Subtipo (criados em Definições).
 class ProjectClassificationFields extends StatelessWidget {
   final FirestoreService service;
   final String? typeId;
@@ -21,101 +20,6 @@ class ProjectClassificationFields extends StatelessWidget {
     required this.onTypeChanged,
     required this.onSubtypeChanged,
   });
-
-  Future<void> _createType(BuildContext context) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (uid.isEmpty) return;
-    final name = await _askName(context, title: 'Novo tipo', label: 'Nome do tipo');
-    if (name == null || name.isEmpty) return;
-    try {
-      final id = await service.addProjectType(name: name, userId: uid);
-      onTypeChanged(
-        ProjectType(
-          id: id,
-          name: name,
-          createdBy: uid,
-          createdAt: DateTime.now(),
-        ),
-      );
-      onSubtypeChanged(null);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao criar tipo: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _createSubtype(BuildContext context, String typeId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (uid.isEmpty || typeId.isEmpty) return;
-    final name =
-        await _askName(context, title: 'Novo subtipo', label: 'Nome do subtipo');
-    if (name == null || name.isEmpty) return;
-    try {
-      final id = await service.addProjectSubtype(
-        typeId: typeId,
-        name: name,
-        userId: uid,
-      );
-      onSubtypeChanged(
-        ProjectSubtype(
-          id: id,
-          typeId: typeId,
-          name: name,
-          createdBy: uid,
-          createdAt: DateTime.now(),
-        ),
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao criar subtipo: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<String?> _askName(
-    BuildContext context, {
-    required String title,
-    required String label,
-  }) async {
-    final ctrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: label,
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => Navigator.pop(ctx, true),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Criar'),
-          ),
-        ],
-      ),
-    );
-    final name = ctrl.text.trim();
-    ctrl.dispose();
-    if (ok != true || name.isEmpty) return null;
-    return name;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -135,48 +39,37 @@ class ProjectClassificationFields extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String?>(
-                    key: ValueKey('edit-type-$selectedTypeId-${types.length}'),
-                    initialValue: selectedType?.id,
-                    decoration: const InputDecoration(
-                      labelText: 'Tipo',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.category_outlined),
-                    ),
-                    items: [
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('— Sem tipo —'),
-                      ),
-                      ...types.map(
-                        (t) => DropdownMenuItem<String?>(
-                          value: t.id,
-                          child: Text(t.name),
-                        ),
-                      ),
-                    ],
-                    onChanged: (id) {
-                      if (id == null) {
-                        onTypeChanged(null);
-                        onSubtypeChanged(null);
-                        return;
-                      }
-                      final t = types.firstWhere((x) => x.id == id);
-                      onTypeChanged(t);
-                      onSubtypeChanged(null);
-                    },
+            DropdownButtonFormField<String?>(
+              key: ValueKey('edit-type-$selectedTypeId-${types.length}'),
+              initialValue: selectedType?.id,
+              decoration: const InputDecoration(
+                labelText: 'Tipo',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.category_outlined),
+                helperText: 'Gere tipos e subtipos na aba Definições',
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('— Sem tipo —'),
+                ),
+                ...types.map(
+                  (t) => DropdownMenuItem<String?>(
+                    value: t.id,
+                    child: Text(t.name),
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Criar tipo',
-                  onPressed: () => _createType(context),
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
               ],
+              onChanged: (id) {
+                if (id == null) {
+                  onTypeChanged(null);
+                  onSubtypeChanged(null);
+                  return;
+                }
+                final t = types.firstWhere((x) => x.id == id);
+                onTypeChanged(t);
+                onSubtypeChanged(null);
+              },
             ),
             const SizedBox(height: 12),
             StreamBuilder<List<ProjectSubtype>>(
@@ -196,55 +89,39 @@ class ProjectClassificationFields extends StatelessWidget {
                   }
                 }
 
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String?>(
-                        key: ValueKey(
-                          'edit-sub-${selectedType?.id}-$selectedSubtypeId-${subs.length}',
-                        ),
-                        initialValue: selectedSubtype?.id,
-                        decoration: const InputDecoration(
-                          labelText: 'Subtipo',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.subdirectory_arrow_right),
-                        ),
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('— Sem subtipo —'),
-                          ),
-                          ...subs.map(
-                            (s) => DropdownMenuItem<String?>(
-                              value: s.id,
-                              child: Text(s.name),
-                            ),
-                          ),
-                        ],
-                        onChanged: selectedType == null
-                            ? null
-                            : (id) {
-                                if (id == null) {
-                                  onSubtypeChanged(null);
-                                  return;
-                                }
-                                onSubtypeChanged(
-                                  subs.firstWhere((x) => x.id == id),
-                                );
-                              },
+                return DropdownButtonFormField<String?>(
+                  key: ValueKey(
+                    'edit-sub-${selectedType?.id}-$selectedSubtypeId-${subs.length}',
+                  ),
+                  initialValue: selectedSubtype?.id,
+                  decoration: const InputDecoration(
+                    labelText: 'Subtipo',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.subdirectory_arrow_right),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('— Sem subtipo —'),
+                    ),
+                    ...subs.map(
+                      (s) => DropdownMenuItem<String?>(
+                        value: s.id,
+                        child: Text(s.name),
                       ),
                     ),
-                    IconButton(
-                      tooltip: selectedType == null
-                          ? 'Escolhe um tipo primeiro'
-                          : 'Criar subtipo',
-                      onPressed: selectedType == null
-                          ? null
-                          : () => _createSubtype(context, selectedType!.id),
-                      icon: const Icon(Icons.add_circle_outline),
-                    ),
                   ],
+                  onChanged: selectedType == null
+                      ? null
+                      : (id) {
+                          if (id == null) {
+                            onSubtypeChanged(null);
+                            return;
+                          }
+                          onSubtypeChanged(
+                            subs.firstWhere((x) => x.id == id),
+                          );
+                        },
                 );
               },
             ),
@@ -255,7 +132,7 @@ class ProjectClassificationFields extends StatelessWidget {
   }
 }
 
-/// Filtros de pesquisa por tipo / subtipo (criados pelo utilizador).
+/// Filtros de pesquisa por tipo / subtipo.
 class ProjectClassificationFilters extends StatelessWidget {
   final FirestoreService service;
   final String? typeId;
