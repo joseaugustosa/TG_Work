@@ -86,14 +86,14 @@ class _DevelopmentDetailScreenState extends State<DevelopmentDetailScreen> {
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                SelectableText(
                   dev?.name ?? widget.devName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                Text(
+                SelectableText(
                   '${widget.project.name} › ${widget.theme.name}',
                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal),
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
               ],
             ),
@@ -353,7 +353,7 @@ class _InfoCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
+                  child: SelectableText(
                     dev.name,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
@@ -363,7 +363,10 @@ class _InfoCard extends StatelessWidget {
             ),
             if (dev.description.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text(dev.description, style: TextStyle(color: Colors.grey[700])),
+              SelectableText(
+                dev.description,
+                style: TextStyle(color: Colors.grey[700]),
+              ),
             ],
             NoteRecordingPlayback(downloadUrl: dev.descriptionRecordingUrl),
             const SizedBox(height: 10),

@@ -7,7 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_release_service.dart';
 
-/// Verifica atualizações automaticamente; só mostra «Atualizar» se houver versão nova.
+/// Verifica atualizações; botão para voltar a verificar; «Atualizar» só se houver nova versão.
 class ProfileUpdatesSection extends StatefulWidget {
   const ProfileUpdatesSection({super.key});
 
@@ -36,17 +36,15 @@ class _ProfileUpdatesSectionState extends State<ProfileUpdatesSection> {
     });
     try {
       final installed = await _service.currentPackageInfo();
-      final latest = await _service.fetchLatest();
+      final result = await _service.fetchLatestDetailed();
       if (!mounted) return;
       setState(() {
         _installed = installed;
-        _latest = latest;
+        _latest = result.info;
         _loading = false;
-        if (latest == null) {
-          _error = 'Não foi possível verificar atualizações agora.';
-        }
+        _error = result.info == null ? result.errorMessage : null;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -144,11 +142,6 @@ class _ProfileUpdatesSectionState extends State<ProfileUpdatesSection> {
                   ],
                 ),
               )
-            else if (_error != null && !hasUpdate)
-              Text(
-                _error!,
-                style: TextStyle(fontSize: 13, color: Colors.grey[700]),
-              )
             else if (hasUpdate && latest != null) ...[
               Text(
                 'Nova versão disponível: ${latest.label}',
@@ -176,6 +169,11 @@ class _ProfileUpdatesSectionState extends State<ProfileUpdatesSection> {
                     : const Icon(Icons.download),
                 label: Text(_updating ? 'A abrir…' : 'Atualizar'),
               ),
+            ] else if (_error != null) ...[
+              Text(
+                _error!,
+                style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+              ),
             ] else
               Text(
                 latest != null
@@ -183,6 +181,12 @@ class _ProfileUpdatesSectionState extends State<ProfileUpdatesSection> {
                     : 'Está atualizado.',
                 style: TextStyle(color: Colors.grey[700]),
               ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _check,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Verificar se há atualizações'),
+            ),
           ],
         ),
       ),

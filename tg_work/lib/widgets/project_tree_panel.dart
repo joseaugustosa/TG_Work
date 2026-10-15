@@ -459,12 +459,11 @@ class _NotesBranch extends StatelessWidget {
                 onChanged: busy.contains('n:${note.id}')
                     ? null
                     : (v) => onToggle(note, v == true),
-                title: Text(
+                title: SelectableText(
                   note.text.trim().isEmpty
                       ? '(nota sem texto${note.recordingUrl != null ? ' · áudio' : ''})'
                       : note.text,
                   maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
                     decoration: note.done ? TextDecoration.lineThrough : null,

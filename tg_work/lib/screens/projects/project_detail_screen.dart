@@ -274,7 +274,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(
+            title: SelectableText(
               project?.name ?? widget.projectName,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
@@ -476,7 +476,7 @@ class _InfoCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
+                  child: SelectableText(
                     project.name,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
@@ -494,7 +494,7 @@ class _InfoCard extends StatelessWidget {
                   Icon(Icons.category_outlined, size: 16, color: Colors.grey[600]),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
+                    child: SelectableText(
                       project.classificationLabel,
                       style: TextStyle(
                         color: Colors.grey[800],
@@ -507,7 +507,10 @@ class _InfoCard extends StatelessWidget {
             ],
             if (project.description.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text(project.description, style: TextStyle(color: Colors.grey[700])),
+              SelectableText(
+                project.description,
+                style: TextStyle(color: Colors.grey[700]),
+              ),
             ],
             NoteRecordingPlayback(downloadUrl: project.descriptionRecordingUrl),
             const SizedBox(height: 10),

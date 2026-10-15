@@ -56,6 +56,13 @@ class AppReleaseInfo {
   }
 }
 
+class AppReleaseFetchResult {
+  final AppReleaseInfo? info;
+  final String errorMessage;
+
+  const AppReleaseFetchResult({this.info, this.errorMessage = ''});
+}
+
 class _ParsedTag {
   final String version;
   final int build;
@@ -84,6 +91,12 @@ class AppReleaseService {
   Future<PackageInfo> currentPackageInfo() => PackageInfo.fromPlatform();
 
   Future<AppReleaseInfo?> fetchLatest() async {
+    final r = await fetchLatestDetailed();
+    return r.info;
+  }
+
+  /// Lê só a API pública do GitHub Releases (repo tem de ser público).
+  Future<AppReleaseFetchResult> fetchLatestDetailed() async {
     try {
       final res = await http
           .get(
@@ -95,19 +108,36 @@ class AppReleaseService {
             },
           )
           .timeout(const Duration(seconds: 15));
-      if (res.statusCode == 404) return null;
+      if (res.statusCode == 404) {
+        return const AppReleaseFetchResult(
+          errorMessage:
+              'Não há release no GitHub, ou o repositório não é público.',
+        );
+      }
       if (res.statusCode != 200) {
         debugPrint('GitHub releases HTTP ${res.statusCode}: ${res.body}');
-        return null;
+        return AppReleaseFetchResult(
+          errorMessage: 'GitHub respondeu ${res.statusCode}. Tenta outra vez.',
+        );
       }
       final map = jsonDecode(res.body);
-      if (map is! Map<String, dynamic>) return null;
+      if (map is! Map<String, dynamic>) {
+        return const AppReleaseFetchResult(
+          errorMessage: 'Resposta do GitHub inválida.',
+        );
+      }
       final info = AppReleaseInfo.fromGithubRelease(map);
-      if (info.version.isEmpty && info.tag.isEmpty) return null;
-      return info;
+      if (info.version.isEmpty && info.tag.isEmpty) {
+        return const AppReleaseFetchResult(
+          errorMessage: 'Release sem versão legível.',
+        );
+      }
+      return AppReleaseFetchResult(info: info);
     } catch (e, st) {
       debugPrint('AppReleaseService.fetchLatest: $e\n$st');
-      return null;
+      return const AppReleaseFetchResult(
+        errorMessage: 'Falha de rede ao contactar o GitHub. Tenta outra vez.',
+      );
     }
   }
 

@@ -222,7 +222,7 @@ class _JournalNoteCard extends StatelessWidget {
                 Icon(Icons.person_outline, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(
+                  child: SelectableText(
                     '$author · ${fmt.format(note.createdAt)}',
                     style: TextStyle(
                       fontSize: 12,
@@ -242,9 +242,12 @@ class _JournalNoteCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             if (note.text.isNotEmpty)
-              Text(note.text, style: TextStyle(fontSize: 14, color: Colors.grey[900]))
+              SelectableText(
+                note.text,
+                style: TextStyle(fontSize: 14, color: Colors.grey[900]),
+              )
             else
-              Text(
+              SelectableText(
                 '(sem texto — só áudio)',
                 style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey[600]),
               ),

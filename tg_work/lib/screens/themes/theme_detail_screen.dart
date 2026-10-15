@@ -84,11 +84,11 @@ class _ThemeDetailScreenState extends State<ThemeDetailScreen> {
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                SelectableText(
                   theme?.name ?? widget.themeName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                Text(
+                SelectableText(
                   widget.project.name,
                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
                 ),
@@ -369,7 +369,7 @@ class _InfoCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
+                  child: SelectableText(
                     theme.name,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
@@ -379,7 +379,10 @@ class _InfoCard extends StatelessWidget {
             ),
             if (theme.description.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text(theme.description, style: TextStyle(color: Colors.grey[700])),
+              SelectableText(
+                theme.description,
+                style: TextStyle(color: Colors.grey[700]),
+              ),
             ],
             NoteRecordingPlayback(downloadUrl: theme.descriptionRecordingUrl),
             const SizedBox(height: 10),
