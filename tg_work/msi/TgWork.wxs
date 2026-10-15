@@ -1,12 +1,10 @@
 <?define var.ReleaseRoot = "..\build\windows\x64\runner\Release" ?>
-<?ifndef ProductVersion ?>
-<?define ProductVersion = "1.2.0.0" ?>
-<?endif?>
 <!-- Instalação em C:\Program Files\TgWork. Confirma o UAC (executar com permissões de administrador). -->
+<!-- Version é atualizada por build_msi.ps1 a partir do pubspec.yaml -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
       Name="TgWork"
-      Version="$(var.ProductVersion)"
+      Version="1.2.0.0"
       Language="1033"
       Manufacturer="TgWork"
       Scope="perMachine"
