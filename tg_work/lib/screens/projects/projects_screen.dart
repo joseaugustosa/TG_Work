@@ -28,6 +28,7 @@ class ProjectsScreen extends StatefulWidget {
 class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _kanban = false;
   String? _filterTypeId;
+  String? _filterAreaId;
   String? _filterSubtypeId;
 
   late final FirestoreService _service;
@@ -71,9 +72,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     ProjectClassificationFilters(
                       service: _service,
                       typeId: _filterTypeId,
+                      areaId: _filterAreaId,
                       subtypeId: _filterSubtypeId,
                       onTypeChanged: (v) => setState(() {
                         _filterTypeId = v;
+                        _filterAreaId = null;
+                        _filterSubtypeId = null;
+                      }),
+                      onAreaChanged: (v) => setState(() {
+                        _filterAreaId = v;
                         _filterSubtypeId = null;
                       }),
                       onSubtypeChanged: (v) =>
@@ -140,6 +147,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     final projects = filterProjectsByClassification(
                       allProjects,
                       typeId: _filterTypeId,
+                      areaId: _filterAreaId,
                       subtypeId: _filterSubtypeId,
                     );
                     if (allProjects.isEmpty) {
@@ -466,6 +474,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     ProjectStatus status = project?.status ?? ProjectStatus.exequivel;
     String typeId = project?.projectTypeId ?? '';
     String typeName = project?.projectTypeName ?? '';
+    String areaId = project?.projectAreaId ?? '';
+    String areaName = project?.projectAreaName ?? '';
     String subtypeId = project?.projectSubtypeId ?? '';
     String subtypeName = project?.projectSubtypeName ?? '';
 
@@ -498,10 +508,19 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 ProjectClassificationFields(
                   service: service,
                   typeId: typeId.isEmpty ? null : typeId,
+                  areaId: areaId.isEmpty ? null : areaId,
                   subtypeId: subtypeId.isEmpty ? null : subtypeId,
                   onTypeChanged: (t) => setState(() {
                     typeId = t?.id ?? '';
                     typeName = t?.name ?? '';
+                    areaId = '';
+                    areaName = '';
+                    subtypeId = '';
+                    subtypeName = '';
+                  }),
+                  onAreaChanged: (a) => setState(() {
+                    areaId = a?.id ?? '';
+                    areaName = a?.name ?? '';
                     subtypeId = '';
                     subtypeName = '';
                   }),
@@ -598,6 +617,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   createdAt: project?.createdAt ?? DateTime.now(),
                   projectTypeId: typeId,
                   projectTypeName: typeName,
+                  projectAreaId: areaId,
+                  projectAreaName: areaName,
                   projectSubtypeId: subtypeId,
                   projectSubtypeName: subtypeName,
                 );

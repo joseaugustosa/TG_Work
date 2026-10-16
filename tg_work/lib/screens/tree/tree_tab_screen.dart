@@ -18,6 +18,7 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
   late final Stream<List<Project>> _projectsStream;
   String? _filterProjectId;
   String? _filterTypeId;
+  String? _filterAreaId;
   String? _filterSubtypeId;
 
   @override
@@ -62,6 +63,7 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
         final byClass = filterProjectsByClassification(
           allProjects,
           typeId: _filterTypeId,
+          areaId: _filterAreaId,
           subtypeId: _filterSubtypeId,
         );
         final filterOk = _filterProjectId != null &&
@@ -102,9 +104,16 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
                   ProjectClassificationFilters(
                     service: _service,
                     typeId: _filterTypeId,
+                    areaId: _filterAreaId,
                     subtypeId: _filterSubtypeId,
                     onTypeChanged: (v) => setState(() {
                       _filterTypeId = v;
+                      _filterAreaId = null;
+                      _filterSubtypeId = null;
+                      _filterProjectId = null;
+                    }),
+                    onAreaChanged: (v) => setState(() {
+                      _filterAreaId = v;
                       _filterSubtypeId = null;
                       _filterProjectId = null;
                     }),

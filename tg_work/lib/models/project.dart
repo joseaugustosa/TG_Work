@@ -67,6 +67,12 @@ class Project {
   /// Nome do tipo (cópia para listagens sem join).
   final String projectTypeName;
 
+  /// ID da área (`project_areas`).
+  final String projectAreaId;
+
+  /// Nome da área (cópia para listagens).
+  final String projectAreaName;
+
   /// ID do subtipo (`project_subtypes`).
   final String projectSubtypeId;
 
@@ -88,16 +94,19 @@ class Project {
     this.ideCountingFolderFsPath = '',
     this.projectTypeId = '',
     this.projectTypeName = '',
+    this.projectAreaId = '',
+    this.projectAreaName = '',
     this.projectSubtypeId = '',
     this.projectSubtypeName = '',
   });
 
   String get classificationLabel {
-    final t = projectTypeName.trim();
-    final s = projectSubtypeName.trim();
-    if (t.isEmpty) return '';
-    if (s.isEmpty) return t;
-    return '$t · $s';
+    final parts = <String>[
+      projectTypeName.trim(),
+      projectAreaName.trim(),
+      projectSubtypeName.trim(),
+    ].where((s) => s.isNotEmpty);
+    return parts.join(' · ');
   }
 
   Project copyWith({
@@ -116,6 +125,8 @@ class Project {
     String? ideCountingFolderFsPath,
     String? projectTypeId,
     String? projectTypeName,
+    String? projectAreaId,
+    String? projectAreaName,
     String? projectSubtypeId,
     String? projectSubtypeName,
   }) {
@@ -137,6 +148,8 @@ class Project {
           ideCountingFolderFsPath ?? this.ideCountingFolderFsPath,
       projectTypeId: projectTypeId ?? this.projectTypeId,
       projectTypeName: projectTypeName ?? this.projectTypeName,
+      projectAreaId: projectAreaId ?? this.projectAreaId,
+      projectAreaName: projectAreaName ?? this.projectAreaName,
       projectSubtypeId: projectSubtypeId ?? this.projectSubtypeId,
       projectSubtypeName: projectSubtypeName ?? this.projectSubtypeName,
     );
@@ -151,6 +164,8 @@ class Project {
     final typeName = (map['projectTypeName'] as String?)?.trim().isNotEmpty == true
         ? (map['projectTypeName'] as String).trim()
         : ((map['projectType'] as String?)?.trim() ?? '');
+    final areaId = (map['projectAreaId'] as String?)?.trim() ?? '';
+    final areaName = (map['projectAreaName'] as String?)?.trim() ?? '';
     final subtypeId = (map['projectSubtypeId'] as String?)?.trim() ?? '';
     final subtypeName =
         (map['projectSubtypeName'] as String?)?.trim().isNotEmpty == true
@@ -171,6 +186,8 @@ class Project {
       ideCountingFolderFsPath: ide,
       projectTypeId: typeId,
       projectTypeName: typeName,
+      projectAreaId: areaId,
+      projectAreaName: areaName,
       projectSubtypeId: subtypeId,
       projectSubtypeName: subtypeName,
     );
@@ -194,6 +211,9 @@ class Project {
       if (projectTypeId.trim().isNotEmpty) 'projectTypeId': projectTypeId.trim(),
       if (projectTypeName.trim().isNotEmpty)
         'projectTypeName': projectTypeName.trim(),
+      if (projectAreaId.trim().isNotEmpty) 'projectAreaId': projectAreaId.trim(),
+      if (projectAreaName.trim().isNotEmpty)
+        'projectAreaName': projectAreaName.trim(),
       if (projectSubtypeId.trim().isNotEmpty)
         'projectSubtypeId': projectSubtypeId.trim(),
       if (projectSubtypeName.trim().isNotEmpty)

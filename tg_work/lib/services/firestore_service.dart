@@ -151,6 +151,16 @@ class FirestoreService {
       updated.projectTypeName.trim(),
     );
     patch(
+      'projectAreaId',
+      oldProject.projectAreaId.trim(),
+      updated.projectAreaId.trim(),
+    );
+    patch(
+      'projectAreaName',
+      oldProject.projectAreaName.trim(),
+      updated.projectAreaName.trim(),
+    );
+    patch(
       'projectSubtypeId',
       oldProject.projectSubtypeId.trim(),
       updated.projectSubtypeId.trim(),
@@ -586,10 +596,32 @@ class FirestoreService {
     });
   }
 
-  Stream<List<ProjectSubtype>> watchProjectSubtypes({String? typeId}) {
-    Query<Map<String, dynamic>> q = _db.collection('project_subtypes');
+  Stream<List<ProjectArea>> watchProjectAreas({String? typeId}) {
+    Query<Map<String, dynamic>> q = _db.collection('project_areas');
     final tid = typeId?.trim() ?? '';
     if (tid.isNotEmpty) {
+      q = q.where('typeId', isEqualTo: tid);
+    }
+    return q.snapshots().map((snap) {
+      final list =
+          snap.docs.map((d) => ProjectArea.fromMap(d.data(), d.id)).toList();
+      list.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return list;
+    });
+  }
+
+  Stream<List<ProjectSubtype>> watchProjectSubtypes({
+    String? typeId,
+    String? areaId,
+  }) {
+    Query<Map<String, dynamic>> q = _db.collection('project_subtypes');
+    final aid = areaId?.trim() ?? '';
+    final tid = typeId?.trim() ?? '';
+    if (aid.isNotEmpty) {
+      q = q.where('areaId', isEqualTo: aid);
+    } else if (tid.isNotEmpty) {
       q = q.where('typeId', isEqualTo: tid);
     }
     return q.snapshots().map((snap) {
@@ -620,7 +652,7 @@ class FirestoreService {
     return ref.id;
   }
 
-  Future<String> addProjectSubtype({
+  Future<String> addProjectArea({
     required String typeId,
     required String name,
     required String userId,
@@ -628,10 +660,35 @@ class FirestoreService {
     final tid = typeId.trim();
     final n = name.trim();
     if (tid.isEmpty || n.isEmpty) throw ArgumentError('typeId/name');
+    final ref = await _db.collection('project_areas').add(
+          ProjectArea(
+            id: '',
+            typeId: tid,
+            name: n,
+            createdBy: userId,
+            createdAt: DateTime.now(),
+          ).toCreateMap(),
+        );
+    return ref.id;
+  }
+
+  Future<String> addProjectSubtype({
+    required String typeId,
+    required String areaId,
+    required String name,
+    required String userId,
+  }) async {
+    final tid = typeId.trim();
+    final aid = areaId.trim();
+    final n = name.trim();
+    if (tid.isEmpty || aid.isEmpty || n.isEmpty) {
+      throw ArgumentError('typeId/areaId/name');
+    }
     final ref = await _db.collection('project_subtypes').add(
           ProjectSubtype(
             id: '',
             typeId: tid,
+            areaId: aid,
             name: n,
             createdBy: userId,
             createdAt: DateTime.now(),
@@ -647,6 +704,13 @@ class FirestoreService {
     await _db.collection('project_types').doc(tid).update({'name': n});
   }
 
+  Future<void> renameProjectArea(String areaId, String name) async {
+    final id = areaId.trim();
+    final n = name.trim();
+    if (id.isEmpty || n.isEmpty) return;
+    await _db.collection('project_areas').doc(id).update({'name': n});
+  }
+
   Future<void> renameProjectSubtype(String subtypeId, String name) async {
     final id = subtypeId.trim();
     final n = name.trim();
@@ -657,14 +721,34 @@ class FirestoreService {
   Future<void> deleteProjectType(String typeId) async {
     final tid = typeId.trim();
     if (tid.isEmpty) return;
-    final subs = await _db
+    final areas = await _db
+        .collection('project_areas')
+        .where('typeId', isEqualTo: tid)
+        .get();
+    for (final a in areas.docs) {
+      await deleteProjectArea(a.id);
+    }
+    final orphanSubs = await _db
         .collection('project_subtypes')
         .where('typeId', isEqualTo: tid)
+        .get();
+    for (final d in orphanSubs.docs) {
+      await d.reference.delete();
+    }
+    await _db.collection('project_types').doc(tid).delete();
+  }
+
+  Future<void> deleteProjectArea(String areaId) async {
+    final aid = areaId.trim();
+    if (aid.isEmpty) return;
+    final subs = await _db
+        .collection('project_subtypes')
+        .where('areaId', isEqualTo: aid)
         .get();
     for (final d in subs.docs) {
       await d.reference.delete();
     }
-    await _db.collection('project_types').doc(tid).delete();
+    await _db.collection('project_areas').doc(aid).delete();
   }
 
   Future<void> deleteProjectSubtype(String subtypeId) async {

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/project_type.dart';
 import '../../services/firestore_service.dart';
 
-/// Aba Definições: criar e gerir tipos / subtipos de projeto.
+/// Aba Definições: Tipo → Área → Subtipo.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -60,6 +60,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return name;
   }
 
+  Future<bool> _confirmDelete(String title, String message) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> _createType() async {
     if (_uid.isEmpty) return;
     final name = await _askName(title: 'Novo tipo', label: 'Nome do tipo');
@@ -72,11 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
   }
 
@@ -90,58 +108,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await _service.renameProjectType(type.id, name);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
   }
 
   Future<void> _deleteType(ProjectType type) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar tipo'),
-        content: Text(
-          'Eliminar «${type.name}» e todos os subtipos associados?\n'
-          'Os projetos que usam este tipo ficam sem classificação.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+    final ok = await _confirmDelete(
+      'Eliminar tipo',
+      'Eliminar «${type.name}», todas as áreas e subtipos?\n'
+      'Os projetos que usam este tipo ficam sem classificação.',
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       await _service.deleteProjectType(type.id);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
   }
 
-  Future<void> _createSubtype(ProjectType type) async {
+  Future<void> _createArea(ProjectType type) async {
+    if (_uid.isEmpty) return;
+    final name = await _askName(
+      title: 'Nova área',
+      label: 'Área de «${type.name}»',
+    );
+    if (name == null) return;
+    try {
+      await _service.addProjectArea(
+        typeId: type.id,
+        name: name,
+        userId: _uid,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Área «$name» criada.')),
+        );
+      }
+    } catch (e) {
+      _showError(e);
+    }
+  }
+
+  Future<void> _renameArea(ProjectArea area) async {
+    final name = await _askName(
+      title: 'Renomear área',
+      label: 'Nome da área',
+      initial: area.name,
+    );
+    if (name == null || name == area.name) return;
+    try {
+      await _service.renameProjectArea(area.id, name);
+    } catch (e) {
+      _showError(e);
+    }
+  }
+
+  Future<void> _deleteArea(ProjectArea area) async {
+    final ok = await _confirmDelete(
+      'Eliminar área',
+      'Eliminar «${area.name}» e os subtipos dentro dela?',
+    );
+    if (!ok) return;
+    try {
+      await _service.deleteProjectArea(area.id);
+    } catch (e) {
+      _showError(e);
+    }
+  }
+
+  Future<void> _createSubtype(ProjectType type, ProjectArea area) async {
     if (_uid.isEmpty) return;
     final name = await _askName(
       title: 'Novo subtipo',
-      label: 'Subtipo de «${type.name}»',
+      label: 'Subtipo de «${area.name}»',
     );
     if (name == null) return;
     try {
       await _service.addProjectSubtype(
         typeId: type.id,
+        areaId: area.id,
         name: name,
         userId: _uid,
       );
@@ -151,11 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
   }
 
@@ -169,43 +210,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await _service.renameProjectSubtype(sub.id, name);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
   }
 
   Future<void> _deleteSubtype(ProjectSubtype sub) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar subtipo'),
-        content: Text('Eliminar «${sub.name}»?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+    final ok = await _confirmDelete(
+      'Eliminar subtipo',
+      'Eliminar «${sub.name}»?',
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       await _service.deleteProjectSubtype(sub.id);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
+  }
+
+  void _showError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+    );
   }
 
   @override
@@ -228,8 +254,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Cria aqui os tipos e subtipos dos projetos. '
-                'Depois escolhes-os ao criar ou editar um projeto.',
+                'Hierarquia: Tipo → Área → Subtipo. '
+                'Depois escolhes isto ao criar ou editar um projeto.',
                 style: TextStyle(
                   fontSize: 12.5,
                   height: 1.35,
@@ -292,16 +318,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         type.name,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
+                      subtitle: const Text('Tipo', style: TextStyle(fontSize: 11)),
                       trailing: PopupMenuButton<String>(
                         onSelected: (v) async {
+                          if (v == 'add_area') await _createArea(type);
                           if (v == 'rename') await _renameType(type);
                           if (v == 'delete') await _deleteType(type);
-                          if (v == 'add_sub') await _createSubtype(type);
                         },
                         itemBuilder: (_) => const [
                           PopupMenuItem(
-                            value: 'add_sub',
-                            child: Text('Novo subtipo'),
+                            value: 'add_area',
+                            child: Text('Nova área'),
                           ),
                           PopupMenuItem(
                             value: 'rename',
@@ -314,74 +341,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                       children: [
-                        StreamBuilder<List<ProjectSubtype>>(
-                          stream: _service.watchProjectSubtypes(typeId: type.id),
-                          builder: (context, subSnap) {
-                            final subs = subSnap.data ?? [];
+                        StreamBuilder<List<ProjectArea>>(
+                          stream: _service.watchProjectAreas(typeId: type.id),
+                          builder: (context, areaSnap) {
+                            final areas = areaSnap.data ?? [];
                             return Column(
                               children: [
-                                if (subs.isEmpty)
+                                if (areas.isEmpty)
                                   Padding(
                                     padding: const EdgeInsets.fromLTRB(
                                       16,
                                       0,
                                       16,
-                                      12,
+                                      8,
                                     ),
                                     child: Text(
-                                      'Sem subtipos. Usa o menu ⋮ → Novo subtipo.',
+                                      'Sem áreas. Usa o menu ⋮ → Nova área.',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: Colors.grey.shade600,
                                       ),
                                     ),
                                   ),
-                                ...subs.map(
-                                  (s) => ListTile(
-                                    contentPadding: const EdgeInsets.only(
-                                      left: 56,
-                                      right: 8,
-                                    ),
-                                    leading: const Icon(
-                                      Icons.subdirectory_arrow_right,
-                                      size: 20,
-                                    ),
-                                    title: Text(s.name),
-                                    trailing: PopupMenuButton<String>(
-                                      onSelected: (v) async {
-                                        if (v == 'rename') {
-                                          await _renameSubtype(s);
-                                        }
-                                        if (v == 'delete') {
-                                          await _deleteSubtype(s);
-                                        }
-                                      },
-                                      itemBuilder: (_) => const [
-                                        PopupMenuItem(
-                                          value: 'rename',
-                                          child: Text('Renomear'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'delete',
-                                          child: Text('Eliminar'),
-                                        ),
-                                      ],
-                                    ),
+                                ...areas.map(
+                                  (area) => _AreaTile(
+                                    type: type,
+                                    area: area,
+                                    service: _service,
+                                    onCreateSubtype: () =>
+                                        _createSubtype(type, area),
+                                    onRenameArea: () => _renameArea(area),
+                                    onDeleteArea: () => _deleteArea(area),
+                                    onRenameSubtype: _renameSubtype,
+                                    onDeleteSubtype: _deleteSubtype,
                                   ),
                                 ),
                                 Align(
                                   alignment: Alignment.centerLeft,
                                   child: Padding(
                                     padding: const EdgeInsets.fromLTRB(
-                                      56,
+                                      24,
                                       0,
                                       16,
                                       12,
                                     ),
                                     child: TextButton.icon(
-                                      onPressed: () => _createSubtype(type),
+                                      onPressed: () => _createArea(type),
                                       icon: const Icon(Icons.add, size: 18),
-                                      label: const Text('Novo subtipo'),
+                                      label: const Text('Nova área'),
                                     ),
                                   ),
                                 ),
@@ -396,6 +403,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
             },
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AreaTile extends StatelessWidget {
+  final ProjectType type;
+  final ProjectArea area;
+  final FirestoreService service;
+  final VoidCallback onCreateSubtype;
+  final VoidCallback onRenameArea;
+  final VoidCallback onDeleteArea;
+  final Future<void> Function(ProjectSubtype) onRenameSubtype;
+  final Future<void> Function(ProjectSubtype) onDeleteSubtype;
+
+  const _AreaTile({
+    required this.type,
+    required this.area,
+    required this.service,
+    required this.onCreateSubtype,
+    required this.onRenameArea,
+    required this.onDeleteArea,
+    required this.onRenameSubtype,
+    required this.onDeleteSubtype,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ExpansionTile(
+      key: PageStorageKey('area-${area.id}'),
+      tilePadding: const EdgeInsets.only(left: 28, right: 8),
+      leading: const Icon(Icons.layers_outlined, color: Color(0xFF3949AB)),
+      title: Text(area.name),
+      subtitle: const Text('Área', style: TextStyle(fontSize: 11)),
+      trailing: PopupMenuButton<String>(
+        onSelected: (v) {
+          if (v == 'add_sub') onCreateSubtype();
+          if (v == 'rename') onRenameArea();
+          if (v == 'delete') onDeleteArea();
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'add_sub', child: Text('Novo subtipo')),
+          PopupMenuItem(value: 'rename', child: Text('Renomear')),
+          PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+        ],
+      ),
+      children: [
+        StreamBuilder<List<ProjectSubtype>>(
+          stream: service.watchProjectSubtypes(areaId: area.id),
+          builder: (context, subSnap) {
+            final subs = subSnap.data ?? [];
+            return Column(
+              children: [
+                if (subs.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(48, 0, 16, 8),
+                    child: Text(
+                      'Sem subtipos nesta área.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ...subs.map(
+                  (s) => ListTile(
+                    contentPadding: const EdgeInsets.only(left: 56, right: 8),
+                    leading: const Icon(
+                      Icons.subdirectory_arrow_right,
+                      size: 20,
+                    ),
+                    title: Text(s.name),
+                    subtitle: const Text(
+                      'Subtipo',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (v) async {
+                        if (v == 'rename') await onRenameSubtype(s);
+                        if (v == 'delete') await onDeleteSubtype(s);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'rename',
+                          child: Text('Renomear'),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Eliminar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(56, 0, 16, 12),
+                    child: TextButton.icon(
+                      onPressed: onCreateSubtype,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Novo subtipo'),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );

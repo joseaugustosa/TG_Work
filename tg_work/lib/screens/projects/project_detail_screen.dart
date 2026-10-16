@@ -67,6 +67,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     ProjectStatus status = project.status;
     String typeId = project.projectTypeId;
     String typeName = project.projectTypeName;
+    String areaId = project.projectAreaId;
+    String areaName = project.projectAreaName;
     String subtypeId = project.projectSubtypeId;
     String subtypeName = project.projectSubtypeName;
 
@@ -102,10 +104,19 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   ProjectClassificationFields(
                     service: _service,
                     typeId: typeId.isEmpty ? null : typeId,
+                    areaId: areaId.isEmpty ? null : areaId,
                     subtypeId: subtypeId.isEmpty ? null : subtypeId,
                     onTypeChanged: (t) => setState(() {
                       typeId = t?.id ?? '';
                       typeName = t?.name ?? '';
+                      areaId = '';
+                      areaName = '';
+                      subtypeId = '';
+                      subtypeName = '';
+                    }),
+                    onAreaChanged: (a) => setState(() {
+                      areaId = a?.id ?? '';
+                      areaName = a?.name ?? '';
                       subtypeId = '';
                       subtypeName = '';
                     }),
@@ -207,6 +218,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     ideCountingFolderFsPath: idePathController.text.trim(),
                     projectTypeId: typeId,
                     projectTypeName: typeName,
+                    projectAreaId: areaId,
+                    projectAreaName: areaName,
                     projectSubtypeId: subtypeId,
                     projectSubtypeName: subtypeName,
                   );

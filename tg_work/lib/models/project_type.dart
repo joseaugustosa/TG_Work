@@ -30,15 +30,15 @@ class ProjectType {
       };
 }
 
-/// Subtipo ligado a um tipo (`project_subtypes/{id}`).
-class ProjectSubtype {
+/// Área dentro de um tipo (`project_areas/{id}`).
+class ProjectArea {
   final String id;
   final String typeId;
   final String name;
   final String createdBy;
   final DateTime createdAt;
 
-  const ProjectSubtype({
+  const ProjectArea({
     required this.id,
     required this.typeId,
     required this.name,
@@ -46,8 +46,8 @@ class ProjectSubtype {
     required this.createdAt,
   });
 
-  factory ProjectSubtype.fromMap(Map<String, dynamic> map, String id) {
-    return ProjectSubtype(
+  factory ProjectArea.fromMap(Map<String, dynamic> map, String id) {
+    return ProjectArea(
       id: id,
       typeId: (map['typeId'] as String?)?.trim() ?? '',
       name: (map['name'] as String?)?.trim() ?? '',
@@ -58,6 +58,45 @@ class ProjectSubtype {
 
   Map<String, dynamic> toCreateMap() => {
         'typeId': typeId.trim(),
+        'name': name.trim(),
+        'createdBy': createdBy,
+        'createdAt': Timestamp.fromDate(createdAt),
+      };
+}
+
+/// Subtipo dentro de uma área (`project_subtypes/{id}`).
+/// Mantém [typeId] para consultas e limpeza em cascata.
+class ProjectSubtype {
+  final String id;
+  final String typeId;
+  final String areaId;
+  final String name;
+  final String createdBy;
+  final DateTime createdAt;
+
+  const ProjectSubtype({
+    required this.id,
+    required this.typeId,
+    required this.areaId,
+    required this.name,
+    this.createdBy = '',
+    required this.createdAt,
+  });
+
+  factory ProjectSubtype.fromMap(Map<String, dynamic> map, String id) {
+    return ProjectSubtype(
+      id: id,
+      typeId: (map['typeId'] as String?)?.trim() ?? '',
+      areaId: (map['areaId'] as String?)?.trim() ?? '',
+      name: (map['name'] as String?)?.trim() ?? '',
+      createdBy: (map['createdBy'] as String?) ?? '',
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toCreateMap() => {
+        'typeId': typeId.trim(),
+        'areaId': areaId.trim(),
         'name': name.trim(),
         'createdBy': createdBy,
         'createdAt': Timestamp.fromDate(createdAt),

@@ -20,6 +20,10 @@ String? summarizeProjectEdit(Project old, Project next) {
       old.projectTypeName.trim() != next.projectTypeName.trim()) {
     p.add('tipo');
   }
+  if (old.projectAreaId.trim() != next.projectAreaId.trim() ||
+      old.projectAreaName.trim() != next.projectAreaName.trim()) {
+    p.add('área');
+  }
   if (old.projectSubtypeId.trim() != next.projectSubtypeId.trim() ||
       old.projectSubtypeName.trim() != next.projectSubtypeName.trim()) {
     p.add('subtipo');
