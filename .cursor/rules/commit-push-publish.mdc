@@ -1,0 +1,15 @@
+---
+description: Após alterações na app TgWork, fazer commit, push e publicar release
+alwaysApply: true
+---
+
+# Commit, push e release
+
+Sempre que fizeres alterações relevantes na app Flutter (`tg_work/`), no fim do trabalho:
+
+1. **Commit** com mensagem clara (estilo do repo).
+2. **Push** para `origin` (branch atual).
+3. **Publicar release**: subir versão em `tg_work/pubspec.yaml` (`x.y.z+build`), depois correr `tg_work/scripts/publish_release.ps1` (APK + MSI no GitHub Releases).
+
+Não perguntes se deve publicar — o utilizador quer isto por omissão.
+Não atualizes `git config`. Não faças force push a `main`/`master`.
