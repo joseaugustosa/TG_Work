@@ -15,11 +15,15 @@ import {
 import {
   appendIdeSessionLocally,
   clearInProgressSession,
+  clearPendingConfirmSession,
   formatDurationHumanPt,
   InProgressSession,
   localIdeSessionsFilePath,
+  PendingConfirmSession,
+  readAllPendingConfirm,
   readAllPendingInProgress,
   saveInProgressSession,
+  savePendingConfirmSession,
   summarizeLocalIdeSessions,
 } from './localLog';
 
@@ -64,7 +68,9 @@ function refreshSessionStatusUi(context: vscode.ExtensionContext): void {
   const sec = Math.max(0, Math.floor((Date.now() - sess.openedAtMs) / 1000));
   sb.text = `$(cloud-upload) TG Work · ${sess.countingLabel} · ${formatDurationHumanPt(sec)}`;
   sb.tooltip =
-    `Projeto: ${sess.countingLabel}\nTempo desde abertura: ${formatDurationHumanPt(sec)}\n\nClique → Gravar sessão agora no Firestore e recomeçar contagem.\n(O fecho da janela também grava automaticamente.)`;
+    `Projeto: ${sess.countingLabel}\nTempo desde abertura: ${formatDurationHumanPt(sec)}\n\n` +
+    `Clique → Gravar sessão agora (PC + Firestore) e recomeçar.\n` +
+    `Ao fechar o IDE: na próxima abertura pergunta Sim/Não para registar.`;
   sb.show();
   if (sessionStatusInterval === undefined) {
     sessionStatusInterval = setInterval(
@@ -170,83 +176,205 @@ function enqueueFinalize(task: () => Promise<void>): Promise<void> {
 }
 
 /**
- * Ao arrancar, verifica se há ficheiros in-progress de sessões que não fecharam (crash / kill).
- * Para cada um, envia ao Firestore usando o último heartbeat como hora de fecho.
+ * Converte ficheiros in-progress (crash / kill) em pedidos Sim/Não,
+ * e mostra a notificação para cada sessão pendente de confirmação.
  */
-async function recoverPendingSessionsOnActivate(context: vscode.ExtensionContext): Promise<void> {
-  if (cfg().get<boolean>('syncToFirestore') !== true) {
-    return;
-  }
-  const pending = readAllPendingInProgress();
-  if (!pending.length) {
-    return;
-  }
-
-  const apiKey = cfg().get<string>('firebaseApiKey') ?? '';
-  const refreshTok = await context.secrets.get(SECRET_REFRESH);
-  if (!apiKey?.length || !refreshTok?.length) {
-    tgIdeLog(`Recuperação: ${pending.length} sessão(ões) pendente(s) — sem login Firebase para enviar (comando «iniciar sessão Firebase»).`);
-    return;
-  }
-
-  const uid = await context.secrets.get(SECRET_UID);
-  if (!uid?.length) {
-    return;
-  }
-
-  let access = '';
-  try {
-    access = await refreshIdTokenCached(apiKey, refreshTok);
-  } catch (e) {
-    tgIdeLog(`Recuperação: token falhou: ${e instanceof Error ? e.message : String(e)}`);
-    return;
-  }
-
-  const firebaseProjectId = cfg().get<string>('firebaseProjectId') ?? 'tg-work-2026';
+async function recoverAndPromptPendingOnActivate(
+  context: vscode.ExtensionContext
+): Promise<void> {
   const minSec = cfg().get<number>('minSessionSeconds') ?? 30;
   const now = Date.now();
 
-  for (const p of pending) {
+  for (const p of readAllPendingInProgress()) {
     const closedAtMs = Math.max(p.lastHeartbeatMs, p.openedAtMs + 1000);
     const durationSeconds = Math.max(0, Math.floor((closedAtMs - p.openedAtMs) / 1000));
-
     const ageDays = (now - p.openedAtMs) / 86400_000;
-    if (ageDays > 45) {
-      clearInProgressSession(p.sessionId);
-      tgIdeLog(`Recuperação: omitida (>45 dias) · "${p.countingLabel}"`);
-      continue;
-    }
 
-    if (durationSeconds < minSec) {
+    if (ageDays > 45 || durationSeconds < minSec) {
       clearInProgressSession(p.sessionId);
-      tgIdeLog(`Recuperação: omitida (${durationSeconds}s < mínimo ${minSec}s) · "${p.countingLabel}"`);
+      tgIdeLog(
+        `Recuperação: omitida · "${p.countingLabel}" · ${durationSeconds}s` +
+          (ageDays > 45 ? ' (>45 dias)' : ` (< mínimo ${minSec}s)`)
+      );
       continue;
     }
 
     try {
-      const docId = randomUUID();
-      const body = ideSessionFirestoreFields({
-        userId: uid,
-        tgProjectId: p.tgProjectId || '',
-        workspaceRoot: p.countingFolderFsPath,
-        workspaceName: p.countingLabel,
-        editor: p.editor,
+      savePendingConfirmSession({
+        sessionId: p.sessionId,
         openedAtMs: p.openedAtMs,
         closedAtMs,
         durationSeconds,
-      });
-      await firestoreCreateSessionLog({
-        projectId: firebaseProjectId,
-        documentId: docId,
-        accessToken: access,
-        payload: body,
+        countingLabel: p.countingLabel,
+        countingFolderFsPath: p.countingFolderFsPath,
+        workspaceFileFsPath: p.workspaceFileFsPath,
+        workspaceWindowTitle: p.workspaceWindowTitle,
+        tgProjectId: p.tgProjectId,
+        editor: p.editor,
+        reason: 'recuperacao-crash',
       });
       clearInProgressSession(p.sessionId);
-      tgIdeLog(`Recuperação: sessão enviada (IDE fechou sem gravar) · "${p.countingLabel}" · ${durationSeconds}s · doc=${docId}`);
+      tgIdeLog(
+        `Recuperação: sessão à espera de confirmação · "${p.countingLabel}" · ${durationSeconds}s`
+      );
     } catch (e) {
-      tgIdeLog(`Recuperação: falhou (${p.countingLabel}): ${e instanceof Error ? e.message : String(e)}`);
+      tgIdeLog(
+        `Recuperação: falhou ao guardar pendente (${p.countingLabel}): ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
     }
   }
+
+  await promptPendingConfirmSessions(context);
+}
+
+/** Pergunta Sim/Não para cada sessão pendente (fecho anterior ou crash). */
+async function promptPendingConfirmSessions(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const pending = readAllPendingConfirm();
+  if (!pending.length) {
+    return;
+  }
+
+  for (const p of pending) {
+    const dur = formatDurationHumanPt(p.durationSeconds);
+    const pick = await vscode.window.showInformationMessage(
+      `TG Work: sessão anterior «${p.countingLabel}» · ${dur}. Registar?`,
+      { modal: false },
+      'Sim',
+      'Não'
+    );
+
+    if (pick === 'Sim') {
+      try {
+        await registerCompletedSession(context, p, true);
+        tgIdeLog(
+          `Confirmação: SIM · "${p.countingLabel}" · ${p.durationSeconds}s`
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        tgIdeLog(`Confirmação: falha ao registar: ${msg}`);
+        void vscode.window.showWarningMessage(`TG Work: falha ao registar: ${msg}`);
+        // Mantém o ficheiro pendente para tentar na próxima abertura
+        continue;
+      }
+    } else {
+      tgIdeLog(
+        `Confirmação: NÃO (descartada) · "${p.countingLabel}" · ${p.durationSeconds}s`
+      );
+    }
+    clearPendingConfirmSession(p.sessionId);
+  }
+}
+
+function shouldDeferConfirm(reason: string): boolean {
+  const r = reason.toLowerCase();
+  return r.includes('fecho') || r.includes('sigterm');
+}
+
+/** Grava no PC (+ Firestore opcional) uma sessão já fechada e confirmada. */
+async function registerCompletedSession(
+  context: vscode.ExtensionContext | undefined,
+  sess: {
+    openedAtMs: number;
+    closedAtMs: number;
+    durationSeconds: number;
+    countingLabel: string;
+    countingFolderFsPath: string;
+    workspaceFileFsPath: string;
+    workspaceWindowTitle: string;
+    tgProjectId: string;
+    editor: string;
+  },
+  notify: boolean
+): Promise<{ localPath: string; cloudOk: boolean }> {
+  const openedIso = new Date(sess.openedAtMs).toISOString();
+  const closedIso = new Date(sess.closedAtMs).toISOString();
+  const workDateLocal = yyyyMmDdLocal(sess.openedAtMs);
+  let localPath = '';
+  let cloudOk = false;
+
+  try {
+    localPath = appendIdeSessionLocally({
+      recordedAt: closedIso,
+      workDateLocal,
+      openedAt: openedIso,
+      closedAt: closedIso,
+      durationSeconds: sess.durationSeconds,
+      workspaceShortcut: sess.workspaceFileFsPath ?? '',
+      workspaceMode: sess.workspaceFileFsPath ? 'code-workspace' : 'folder',
+      workspaceRoot: sess.countingFolderFsPath,
+      workspaceName: sess.countingLabel,
+      workspaceWindowTitle: sess.workspaceWindowTitle,
+      countingFolderFsPath: sess.countingFolderFsPath,
+      tgProjectId: sess.tgProjectId || '',
+      editor: sess.editor,
+      countingMode: 'window-open-to-close',
+    });
+    tgIdeLog(
+      `PC: gravado · ${sess.countingLabel} · ${sess.durationSeconds}s · dia=${workDateLocal} · ${path.basename(localPath)}`
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    tgIdeLog(`PC: falha ao gravar: ${msg}`);
+    if (notify) {
+      void vscode.window.showErrorMessage(`TG Work IDE: falha ao gravar no PC: ${msg}`);
+    }
+    throw e;
+  }
+
+  const syncCloud = cfg().get<boolean>('syncToFirestore') === true;
+  if (syncCloud && context) {
+    const uid = await context.secrets.get(SECRET_UID);
+    const refreshTok = await context.secrets.get(SECRET_REFRESH);
+    const apiKey = cfg().get<string>('firebaseApiKey') ?? '';
+    const projectId = cfg().get<string>('firebaseProjectId') ?? 'tg-work-2026';
+    if (uid && refreshTok && apiKey) {
+      try {
+        const access = await refreshIdTokenCached(apiKey, refreshTok);
+        const docId = randomUUID();
+        const body = ideSessionFirestoreFields({
+          userId: uid,
+          tgProjectId: sess.tgProjectId || '',
+          workspaceRoot: sess.countingFolderFsPath,
+          workspaceName: sess.countingLabel,
+          editor: sess.editor,
+          openedAtMs: sess.openedAtMs,
+          closedAtMs: sess.closedAtMs,
+          durationSeconds: sess.durationSeconds,
+        });
+        await firestoreCreateSessionLog({
+          projectId,
+          documentId: docId,
+          accessToken: access,
+          payload: body,
+        });
+        cloudOk = true;
+        tgIdeLog(
+          `Firestore: gravado · ${sess.countingLabel} · ${sess.durationSeconds}s · dia=${workDateLocal} · doc=${docId}`
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        tgIdeLog(`Firestore FALHOU: ${msg}`);
+        if (notify) {
+          void vscode.window.showWarningMessage(`TG Work: Firestore: ${msg}`);
+        }
+      }
+    } else {
+      tgIdeLog(
+        'Firestore: sem login — usa «TG Work IDE: iniciar sessão Firebase». Sessão gravada só no PC.'
+      );
+      if (notify) {
+        void vscode.window.showWarningMessage(
+          'TG Work: sem login Firebase — sessão só no PC.'
+        );
+      }
+    }
+  }
+
+  return { localPath, cloudOk };
 }
 
 function normPathKey(fsPath: string): string {
@@ -632,7 +760,7 @@ function persistInProgress(sess: WindowSession): void {
 
 /**
  * HEARTBEAT: a cada N minutos actualiza o ficheiro local in-progress com o timestamp actual.
- * Se o IDE morrer sem gravar, o próximo arranque envia o último estado ao Firestore.
+ * Se o IDE morrer sem gravar, o próximo arranque pede Sim/Não com o último heartbeat.
  */
 function startHeartbeat(): void {
   stopHeartbeat();
@@ -752,96 +880,61 @@ async function finalizeCurrentImpl(
     return;
   }
 
-  const openedIso = new Date(sess.openedAtMs).toISOString();
-  const closedIso = new Date(closedAtMs).toISOString();
+  // Fecho da janela / SIGTERM: não regista já — pede Sim/Não na próxima abertura
+  if (shouldDeferConfirm(reason)) {
+    try {
+      const pending: PendingConfirmSession = {
+        sessionId: sess.sessionId,
+        openedAtMs: sess.openedAtMs,
+        closedAtMs,
+        durationSeconds,
+        countingLabel: sess.countingLabel,
+        countingFolderFsPath: sess.countingFolderFsPath,
+        workspaceFileFsPath: sess.workspaceFileFsPath ?? '',
+        workspaceWindowTitle: sess.workspaceWindowTitle,
+        tgProjectId: sess.tgProjectId,
+        editor,
+        reason,
+      };
+      savePendingConfirmSession(pending);
+      tgIdeLog(
+        `Fecho: sessão pendente de confirmação · "${sess.countingLabel}" · ${durationSeconds}s · (${reason})`
+      );
+    } catch (e) {
+      tgIdeLog(
+        `Fecho: falha ao guardar pendente: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+    return;
+  }
+
   const workDateLocal = yyyyMmDdLocal(sess.openedAtMs);
-
-  // ── 1. Guardar no PC (sessions.jsonl) ─────────────────────────────────────
-  let localPath = '';
   try {
-    localPath = appendIdeSessionLocally({
-      recordedAt: closedIso,
-      workDateLocal,
-      openedAt: openedIso,
-      closedAt: closedIso,
-      durationSeconds,
-      workspaceShortcut: sess.workspaceFileFsPath ?? '',
-      workspaceMode: sess.workspaceFileFsPath ? 'code-workspace' : 'folder',
-      workspaceRoot: sess.countingFolderFsPath,
-      workspaceName: sess.countingLabel,
-      workspaceWindowTitle: sess.workspaceWindowTitle,
-      countingFolderFsPath: sess.countingFolderFsPath,
-      tgProjectId: sess.tgProjectId || '',
-      editor,
-      countingMode: 'window-open-to-close',
-    });
-    tgIdeLog(
-      `PC: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · ${path.basename(localPath)}`
+    const { localPath, cloudOk } = await registerCompletedSession(
+      context,
+      {
+        openedAtMs: sess.openedAtMs,
+        closedAtMs,
+        durationSeconds,
+        countingLabel: sess.countingLabel,
+        countingFolderFsPath: sess.countingFolderFsPath,
+        workspaceFileFsPath: sess.workspaceFileFsPath ?? '',
+        workspaceWindowTitle: sess.workspaceWindowTitle,
+        tgProjectId: sess.tgProjectId,
+        editor,
+      },
+      notify
     );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    tgIdeLog(`PC: falha ao gravar: ${msg}`);
     if (notify) {
-      void vscode.window.showErrorMessage(`TG Work IDE: falha ao gravar no PC: ${msg}`);
+      const extra = cloudOk ? ' · nuvem ✓' : '';
+      void vscode.window.setStatusBarMessage(
+        `TG Work: ${sess.countingLabel} · ${formatDurationHumanPt(durationSeconds)} · ${workDateLocal}${extra}` +
+          (localPath ? '' : ''),
+        8000
+      );
     }
-  }
-
-  // ── 2. Enviar ao Firestore (um único POST com dados completos) ────────────
-  const syncCloud = cfg().get<boolean>('syncToFirestore') === true;
-  let cloudOk = false;
-  const showCloudErrorsInUi = notify || reason.includes('fecho') || reason.includes('sigterm-host');
-
-  if (syncCloud && context) {
-    const uid = await context.secrets.get(SECRET_UID);
-    const refreshTok = await context.secrets.get(SECRET_REFRESH);
-    const apiKey = cfg().get<string>('firebaseApiKey') ?? '';
-    const projectId = cfg().get<string>('firebaseProjectId') ?? 'tg-work-2026';
-    if (uid && refreshTok && apiKey) {
-      try {
-        const access = await refreshIdTokenCached(apiKey, refreshTok);
-        const docId = randomUUID();
-        const body = ideSessionFirestoreFields({
-          userId: uid,
-          tgProjectId: sess.tgProjectId || '',
-          workspaceRoot: sess.countingFolderFsPath,
-          workspaceName: sess.countingLabel,
-          editor,
-          openedAtMs: sess.openedAtMs,
-          closedAtMs,
-          durationSeconds,
-        });
-        await firestoreCreateSessionLog({
-          projectId,
-          documentId: docId,
-          accessToken: access,
-          payload: body,
-        });
-        cloudOk = true;
-        tgIdeLog(
-          `Firestore: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · doc=${docId}`
-        );
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        tgIdeLog(`Firestore FALHOU: ${msg}`);
-        if (showCloudErrorsInUi) {
-          void vscode.window.showWarningMessage(`TG Work: Firestore: ${msg}`);
-        }
-      }
-    } else {
-      tgIdeLog('Firestore: sem login — usa «TG Work IDE: iniciar sessão Firebase». Sessão gravada só no PC.');
-      if (showCloudErrorsInUi) {
-        void vscode.window.showWarningMessage('TG Work: sem login Firebase — sessão só no PC.');
-      }
-    }
-  }
-
-  if (notify) {
-    const fn = localPath ? path.basename(localPath) : '—';
-    const extra = cloudOk ? ' · nuvem ✓' : '';
-    void vscode.window.setStatusBarMessage(
-      `TG Work: ${sess.countingLabel} · ${formatDurationHumanPt(durationSeconds)} · ${workDateLocal}${extra}`,
-      8000
-    );
+  } catch {
+    // já notificado em registerCompletedSession
   }
 }
 
@@ -960,7 +1053,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   tgIdeLogChannel = vscode.window.createOutputChannel('TG Work IDE');
   context.subscriptions.push(tgIdeLogChannel);
   tgIdeLog('TG Work IDE Session activada.');
-  await recoverPendingSessionsOnActivate(context).catch(() => undefined);
+  await recoverAndPromptPendingOnActivate(context).catch(() => undefined);
   // Pré-aquecer token mesmo se não havia sessões pendentes (token fica em cache para o fecho)
   void proactiveTokenRefresh(context);
 
@@ -1265,7 +1358,10 @@ export async function deactivate(): Promise<void> {
   const ctx = extensionContext;
   if (current && ctx) {
     // Aviso visual imediato — o utilizador vê que algo está a acontecer
-    void vscode.window.setStatusBarMessage('$(sync~spin) TG Work: a gravar sessão...', 10_000);
+    void vscode.window.setStatusBarMessage(
+      '$(sync~spin) TG Work: a guardar sessão (confirma na próxima abertura)...',
+      10_000
+    );
   }
   try {
     await finalizeCurrent(ctx, Date.now(), false, 'fecho-janela');

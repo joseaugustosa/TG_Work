@@ -83,6 +83,71 @@ export function readAllPendingInProgress(): InProgressSession[] {
   return result;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Sessão à espera de confirmação (Sim/Não) na próxima abertura do IDE
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface PendingConfirmSession {
+  sessionId: string;
+  openedAtMs: number;
+  closedAtMs: number;
+  durationSeconds: number;
+  countingLabel: string;
+  countingFolderFsPath: string;
+  workspaceFileFsPath: string;
+  workspaceWindowTitle: string;
+  tgProjectId: string;
+  editor: string;
+  /** Motivo do fecho (fecho-janela, sigterm, recuperação, …). */
+  reason: string;
+}
+
+function pendingConfirmFilePath(sessionId: string): string {
+  return path.join(ideSessionsDir(), `pending-confirm-${sessionId}.json`);
+}
+
+/** Guarda sessão fechada à espera de Sim/Não na próxima abertura. */
+export function savePendingConfirmSession(sess: PendingConfirmSession): void {
+  const dir = ideSessionsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(pendingConfirmFilePath(sess.sessionId), JSON.stringify(sess), 'utf8');
+}
+
+export function clearPendingConfirmSession(sessionId: string): void {
+  try {
+    fs.unlinkSync(pendingConfirmFilePath(sessionId));
+  } catch {
+    //
+  }
+}
+
+export function readAllPendingConfirm(): PendingConfirmSession[] {
+  const dir = ideSessionsDir();
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const result: PendingConfirmSession[] = [];
+  for (const name of entries) {
+    if (!name.startsWith('pending-confirm-') || !name.endsWith('.json')) {
+      continue;
+    }
+    try {
+      const txt = fs.readFileSync(path.join(dir, name), 'utf8');
+      const obj = JSON.parse(txt) as PendingConfirmSession;
+      if (obj.sessionId && obj.openedAtMs && obj.closedAtMs && obj.durationSeconds >= 0) {
+        result.push(obj);
+      }
+    } catch {
+      //
+    }
+  }
+  result.sort((a, b) => b.closedAtMs - a.closedAtMs);
+  return result;
+}
+
 /** Grava sempre no disco (modo apenas PC — sem conta Firebase necessária). */
 export function appendIdeSessionLocally(entry: Record<string, unknown>): string {
   const filePath = localIdeSessionsFilePath();

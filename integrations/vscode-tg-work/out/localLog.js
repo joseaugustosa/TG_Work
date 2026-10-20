@@ -4,6 +4,9 @@ exports.localIdeSessionsFilePath = localIdeSessionsFilePath;
 exports.saveInProgressSession = saveInProgressSession;
 exports.clearInProgressSession = clearInProgressSession;
 exports.readAllPendingInProgress = readAllPendingInProgress;
+exports.savePendingConfirmSession = savePendingConfirmSession;
+exports.clearPendingConfirmSession = clearPendingConfirmSession;
+exports.readAllPendingConfirm = readAllPendingConfirm;
 exports.appendIdeSessionLocally = appendIdeSessionLocally;
 exports.formatDurationHumanPt = formatDurationHumanPt;
 exports.summarizeLocalIdeSessions = summarizeLocalIdeSessions;
@@ -71,6 +74,51 @@ function readAllPendingInProgress() {
             // ficheiro corrompido — ignora
         }
     }
+    return result;
+}
+function pendingConfirmFilePath(sessionId) {
+    return path.join(ideSessionsDir(), `pending-confirm-${sessionId}.json`);
+}
+/** Guarda sessão fechada à espera de Sim/Não na próxima abertura. */
+function savePendingConfirmSession(sess) {
+    const dir = ideSessionsDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(pendingConfirmFilePath(sess.sessionId), JSON.stringify(sess), 'utf8');
+}
+function clearPendingConfirmSession(sessionId) {
+    try {
+        fs.unlinkSync(pendingConfirmFilePath(sessionId));
+    }
+    catch {
+        //
+    }
+}
+function readAllPendingConfirm() {
+    const dir = ideSessionsDir();
+    let entries;
+    try {
+        entries = fs.readdirSync(dir);
+    }
+    catch {
+        return [];
+    }
+    const result = [];
+    for (const name of entries) {
+        if (!name.startsWith('pending-confirm-') || !name.endsWith('.json')) {
+            continue;
+        }
+        try {
+            const txt = fs.readFileSync(path.join(dir, name), 'utf8');
+            const obj = JSON.parse(txt);
+            if (obj.sessionId && obj.openedAtMs && obj.closedAtMs && obj.durationSeconds >= 0) {
+                result.push(obj);
+            }
+        }
+        catch {
+            //
+        }
+    }
+    result.sort((a, b) => b.closedAtMs - a.closedAtMs);
     return result;
 }
 /** Grava sempre no disco (modo apenas PC — sem conta Firebase necessária). */
