@@ -42,6 +42,8 @@ function Merge-TgWorkIdeUserSettings([string]$Path) {
     'tgWorkIde.firebaseApiKey'               = $apiKey
     'tgWorkIde.firebaseProjectId'            = 'tg-work-2026'
     'tgWorkIde.minSessionSeconds'            = 30
+    # Contagem automatica ao abrir pasta ou .code-workspace (nao so atalho)
+    'tgWorkIde.onlyShortcutWorkspace'        = $false
   }
   foreach ($name in $pairs.Keys) {
     $null = Add-Member -InputObject $o -NotePropertyName $name -NotePropertyValue $pairs[$name] -Force
