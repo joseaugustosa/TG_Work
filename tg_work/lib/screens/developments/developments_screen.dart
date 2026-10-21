@@ -155,9 +155,16 @@ class _DevelopmentsScreenState extends State<DevelopmentsScreen> {
                               Expanded(
                                 child: Text(
                                   dev.name,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 14,
+                                    decoration:
+                                        dev.status == DevelopmentStatus.feito
+                                            ? TextDecoration.lineThrough
+                                            : null,
+                                    color: dev.status == DevelopmentStatus.feito
+                                        ? Colors.grey[600]
+                                        : null,
                                   ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -256,8 +263,18 @@ class _DevelopmentsScreenState extends State<DevelopmentsScreen> {
                     backgroundColor: devStatusColor(dev.status).withValues(alpha: 0.15),
                     child: Icon(Icons.code, color: devStatusColor(dev.status)),
                   ),
-                  title: Text(dev.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(
+                    dev.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      decoration: dev.status == DevelopmentStatus.feito
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: dev.status == DevelopmentStatus.feito
+                          ? Colors.grey[600]
+                          : null,
+                    ),
+                  ),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

@@ -491,7 +491,16 @@ class _InfoCard extends StatelessWidget {
                 Expanded(
                   child: SelectableText(
                     project.name,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      decoration: project.status == ProjectStatus.concluido
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: project.status == ProjectStatus.concluido
+                          ? Colors.grey[600]
+                          : null,
+                    ),
                   ),
                 ),
                 StatusBadge(

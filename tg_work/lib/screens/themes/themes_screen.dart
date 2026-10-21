@@ -150,9 +150,15 @@ class _ThemesScreenState extends State<ThemesScreen> {
                               Expanded(
                                 child: Text(
                                   theme.name,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 15,
+                                    decoration: theme.status == ThemeStatus.feito
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    color: theme.status == ThemeStatus.feito
+                                        ? Colors.grey[600]
+                                        : null,
                                   ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -249,8 +255,18 @@ class _ThemesScreenState extends State<ThemesScreen> {
                         themeStatusColor(theme.status).withValues(alpha: 0.15),
                     child: Icon(Icons.topic, color: themeStatusColor(theme.status)),
                   ),
-                  title: Text(theme.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: Text(
+                    theme.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      decoration: theme.status == ThemeStatus.feito
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: theme.status == ThemeStatus.feito
+                          ? Colors.grey[600]
+                          : null,
+                    ),
+                  ),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

@@ -194,6 +194,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         },
                         cardBuilder: (context, project) {
                           final classLabel = project.classificationLabel;
+                          final done = project.status == ProjectStatus.concluido;
                           return Card(
                             elevation: 2,
                             shape: RoundedRectangleBorder(
@@ -221,9 +222,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                           radius: 18,
                                           backgroundColor: const Color(0xFF1A237E)
                                               .withValues(alpha: 0.12),
-                                          child: const Icon(
-                                            Icons.folder_outlined,
-                                            color: Color(0xFF1A237E),
+                                          child: Icon(
+                                            done
+                                                ? Icons.check_circle_outline
+                                                : Icons.folder_outlined,
+                                            color: const Color(0xFF1A237E),
                                             size: 20,
                                           ),
                                         ),
@@ -231,9 +234,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                         Expanded(
                                           child: Text(
                                             project.name,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 15,
+                                              decoration: done
+                                                  ? TextDecoration.lineThrough
+                                                  : null,
+                                              color: done
+                                                  ? Colors.grey[600]
+                                                  : null,
                                             ),
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
@@ -344,6 +353,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       itemBuilder: (context, index) {
                         final project = projects[index];
                         final classLabel = project.classificationLabel;
+                        final done = project.status == ProjectStatus.concluido;
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
                           shape: RoundedRectangleBorder(
@@ -355,11 +365,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                             leading: CircleAvatar(
                               backgroundColor:
                                   const Color(0xFF1A237E).withValues(alpha: 0.1),
-                              child:
-                                  const Icon(Icons.folder, color: Color(0xFF1A237E)),
+                              child: Icon(
+                                done
+                                    ? Icons.check_circle_outline
+                                    : Icons.folder,
+                                color: const Color(0xFF1A237E),
+                              ),
                             ),
-                            title: Text(project.name,
-                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                            title: Text(
+                              project.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                decoration:
+                                    done ? TextDecoration.lineThrough : null,
+                                color: done ? Colors.grey[600] : null,
+                              ),
+                            ),
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [

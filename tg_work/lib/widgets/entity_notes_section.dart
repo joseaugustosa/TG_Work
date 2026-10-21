@@ -244,12 +244,21 @@ class _JournalNoteCard extends StatelessWidget {
             if (note.text.isNotEmpty)
               SelectableText(
                 note.text,
-                style: TextStyle(fontSize: 14, color: Colors.grey[900]),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: note.done ? Colors.grey[600] : Colors.grey[900],
+                  decoration: note.done ? TextDecoration.lineThrough : null,
+                ),
               )
             else
               SelectableText(
                 '(sem texto — só áudio)',
-                style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey[600]),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey[600],
+                  decoration: note.done ? TextDecoration.lineThrough : null,
+                ),
               ),
             NoteRecordingPlayback(downloadUrl: note.recordingUrl),
           ],
