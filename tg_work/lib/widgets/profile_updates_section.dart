@@ -142,7 +142,7 @@ class _ProfileUpdatesSectionState extends State<ProfileUpdatesSection> {
                   ],
                 ),
               )
-            else if (hasUpdate && latest != null) ...[
+            else if (hasUpdate) ...[
               Text(
                 'Nova versão disponível: ${latest.label}',
                 style: TextStyle(
