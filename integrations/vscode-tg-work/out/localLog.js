@@ -1,6 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.localIdeSessionsFilePath = localIdeSessionsFilePath;
+exports.localIdeSessionsDir = localIdeSessionsDir;
+exports.flushRequestFilePath = flushRequestFilePath;
+exports.writeFlushRequest = writeFlushRequest;
+exports.readAndClearFlushRequest = readAndClearFlushRequest;
 exports.saveInProgressSession = saveInProgressSession;
 exports.clearInProgressSession = clearInProgressSession;
 exports.readAllPendingInProgress = readAllPendingInProgress;
@@ -29,6 +33,52 @@ function localIdeSessionsFilePath() {
 function ideSessionsDir() {
     const fp = localIdeSessionsFilePath();
     return path.dirname(fp);
+}
+/** Pasta local das sessões IDE (PC). */
+function localIdeSessionsDir() {
+    return ideSessionsDir();
+}
+/**
+ * Pedido externo para gravar a sessão actual (commit, publish, etc.).
+ * A extensão lê e apaga este ficheiro.
+ */
+function flushRequestFilePath() {
+    return path.join(ideSessionsDir(), 'flush-request.json');
+}
+function writeFlushRequest(reason, source = '') {
+    const dir = ideSessionsDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const payload = {
+        reason: reason.trim() || 'external',
+        source: source.trim(),
+        atMs: Date.now(),
+    };
+    fs.writeFileSync(flushRequestFilePath(), JSON.stringify(payload), 'utf8');
+}
+function readAndClearFlushRequest() {
+    const fp = flushRequestFilePath();
+    try {
+        if (!fs.existsSync(fp)) {
+            return null;
+        }
+        const txt = fs.readFileSync(fp, 'utf8');
+        fs.unlinkSync(fp);
+        const obj = JSON.parse(txt);
+        return {
+            reason: typeof obj.reason === 'string' ? obj.reason : 'external',
+            source: typeof obj.source === 'string' ? obj.source : '',
+            atMs: typeof obj.atMs === 'number' ? obj.atMs : Date.now(),
+        };
+    }
+    catch {
+        try {
+            fs.unlinkSync(fp);
+        }
+        catch {
+            //
+        }
+        return null;
+    }
 }
 function inProgressFilePath(sessionId) {
     return path.join(ideSessionsDir(), `in-progress-${sessionId}.json`);
