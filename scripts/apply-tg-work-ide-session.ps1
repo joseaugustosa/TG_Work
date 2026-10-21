@@ -44,6 +44,8 @@ function Merge-TgWorkIdeUserSettings([string]$Path) {
     'tgWorkIde.minSessionSeconds'            = 30
     # Contagem automatica ao abrir pasta ou .code-workspace (nao so atalho)
     'tgWorkIde.onlyShortcutWorkspace'        = $false
+    # Ao fazer git commit no workspace, gravar tempo IDE automaticamente
+    'tgWorkIde.autoFlushOnGitCommit'         = $true
   }
   foreach ($name in $pairs.Keys) {
     $null = Add-Member -InputObject $o -NotePropertyName $name -NotePropertyValue $pairs[$name] -Force

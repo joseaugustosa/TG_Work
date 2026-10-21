@@ -3,7 +3,7 @@
   "displayName": "TG Work IDE Session",
   "description": "Tempo IDE: stub Firestore ao abrir workspace, PATCH ao fechar; opcional Firebase TG Work.",
   "publisher": "tgwork",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "private": true,
   "engines": {
     "vscode": "^1.74.0"
@@ -96,6 +96,11 @@
           "default": 3,
           "minimum": 1,
           "description": "A cada quantos minutos a extensão actualiza a duração no Firestore enquanto a janela está aberta (heartbeat). Garante que mesmo que o IDE feche abruptamente, o registo na nuvem tem o tempo quase certo. Defeito: 3 minutos."
+        },
+        "tgWorkIde.autoFlushOnGitCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Quando verdadeiro, ao detectar um git commit no workspace aberto (Cursor ou VS Code), grava automaticamente a sessão IDE até esse momento (PC + Firestore) e recomeça a contagem."
         }
       }
     }

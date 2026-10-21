@@ -132,6 +132,13 @@ try {
   Pop-Location
 }
 
+# Pedir ao Cursor/VS Code (se abertos) para gravar o tempo IDE ate aqui
+$flushIde = Join-Path $repoRoot "scripts\request-ide-session-flush.ps1"
+if (Test-Path -LiteralPath $flushIde) {
+  Write-Host "A pedir flush da sessao IDE (commit/publicacao)..."
+  & powershell -NoProfile -ExecutionPolicy Bypass -File $flushIde -Reason publish -Source "release-$tag"
+}
+
 # Instalar / actualizar extensão no Cursor e VS Code deste PC (tempo IDE automatico)
 if (-not $SkipIdeExtension) {
   $applyIde = Join-Path $repoRoot "scripts\apply-tg-work-ide-session.ps1"

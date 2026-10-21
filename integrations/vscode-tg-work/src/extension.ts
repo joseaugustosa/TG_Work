@@ -16,12 +16,15 @@ import {
   appendIdeSessionLocally,
   clearInProgressSession,
   clearPendingConfirmSession,
+  flushRequestFilePath,
   formatDurationHumanPt,
   InProgressSession,
+  localIdeSessionsDir,
   localIdeSessionsFilePath,
   PendingConfirmSession,
   readAllPendingConfirm,
   readAllPendingInProgress,
+  readAndClearFlushRequest,
   saveInProgressSession,
   savePendingConfirmSession,
   summarizeLocalIdeSessions,
@@ -938,6 +941,312 @@ async function finalizeCurrentImpl(
   }
 }
 
+/** Evita vários flushes seguidos (commit + sinal publish, etc.). */
+let lastAutoFlushAtMs = 0;
+const AUTO_FLUSH_DEBOUNCE_MS = 8_000;
+
+/**
+ * Grava a sessão actual (PC + Firestore) e recomeça a contagem.
+ * Usado pelo comando manual, por commits Git e por pedidos externos (publicação).
+ */
+async function flushActiveSession(
+  context: vscode.ExtensionContext,
+  opts: { quiet?: boolean; reason?: string } = {}
+): Promise<'ok' | 'no-session' | 'too-short' | 'error'> {
+  if (!current) {
+    return 'no-session';
+  }
+
+  const quiet = opts.quiet === true;
+  const reason = opts.reason?.trim() || 'manual';
+  const snapLabel = current.countingLabel;
+  const statusHandle = quiet
+    ? undefined
+    : vscode.window.setStatusBarMessage(
+        `$(sync~spin) TG Work: a gravar "${snapLabel}" (${reason})...`,
+        30_000
+      );
+
+  let cloudOk = false;
+  let errorMsg = '';
+
+  try {
+    const closedAtMs = Date.now();
+    const sess = current;
+    stopHeartbeat();
+    current = undefined;
+    refreshSessionStatusUi(context);
+
+    const durationSeconds = Math.max(0, Math.floor((closedAtMs - sess.openedAtMs) / 1000));
+    const minSec = cfg().get<number>('minSessionSeconds') ?? 30;
+    const editor = detectEditor();
+    clearInProgressSession(sess.sessionId);
+
+    if (durationSeconds < minSec) {
+      statusHandle?.dispose();
+      tgIdeLog(
+        `Flush (${reason}): ${durationSeconds}s < mínimo ${minSec}s — só recomeça contagem.`
+      );
+      if (!quiet) {
+        void vscode.window.showWarningMessage(
+          `TG Work: só ${formatDurationHumanPt(durationSeconds)} — mínimo é ${minSec}s. Contagem recomeçada.`
+        );
+      }
+      await startOrRefreshSession(context);
+      return 'too-short';
+    }
+
+    const openedIso = new Date(sess.openedAtMs).toISOString();
+    const closedIso = new Date(closedAtMs).toISOString();
+    const workDateLocal = yyyyMmDdLocal(sess.openedAtMs);
+
+    try {
+      appendIdeSessionLocally({
+        recordedAt: closedIso,
+        workDateLocal,
+        openedAt: openedIso,
+        closedAt: closedIso,
+        durationSeconds,
+        workspaceShortcut: sess.workspaceFileFsPath ?? '',
+        workspaceMode: sess.workspaceFileFsPath ? 'code-workspace' : 'folder',
+        workspaceRoot: sess.countingFolderFsPath,
+        workspaceName: sess.countingLabel,
+        workspaceWindowTitle: sess.workspaceWindowTitle,
+        countingFolderFsPath: sess.countingFolderFsPath,
+        tgProjectId: sess.tgProjectId || '',
+        editor,
+        countingMode: 'window-open-to-close',
+      });
+      tgIdeLog(
+        `PC: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · (${reason})`
+      );
+    } catch (e) {
+      tgIdeLog(`PC: falha: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    const syncCloud = cfg().get<boolean>('syncToFirestore') === true;
+    if (syncCloud) {
+      const uid = await context.secrets.get(SECRET_UID);
+      const refreshTok = await context.secrets.get(SECRET_REFRESH);
+      const apiKey = cfg().get<string>('firebaseApiKey') ?? '';
+      const projectId = cfg().get<string>('firebaseProjectId') ?? 'tg-work-2026';
+      if (uid && refreshTok && apiKey) {
+        try {
+          const access = await refreshIdTokenCached(apiKey, refreshTok);
+          const docId = randomUUID();
+          const body = ideSessionFirestoreFields({
+            userId: uid,
+            tgProjectId: sess.tgProjectId || '',
+            workspaceRoot: sess.countingFolderFsPath,
+            workspaceName: sess.countingLabel,
+            editor,
+            openedAtMs: sess.openedAtMs,
+            closedAtMs,
+            durationSeconds,
+          });
+          await firestoreCreateSessionLog({
+            projectId,
+            documentId: docId,
+            accessToken: access,
+            payload: body,
+          });
+          cloudOk = true;
+          tgIdeLog(
+            `Firestore: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · doc=${docId} · (${reason})`
+          );
+        } catch (e) {
+          errorMsg = e instanceof Error ? e.message : String(e);
+          tgIdeLog(`Firestore FALHOU: ${errorMsg}`);
+        }
+      } else {
+        errorMsg = 'sem login Firebase (comando «iniciar sessão Firebase»)';
+        tgIdeLog(`Firestore: ${errorMsg}`);
+      }
+    }
+
+    statusHandle?.dispose();
+    const durStr = formatDurationHumanPt(durationSeconds);
+    if (!quiet) {
+      if (cloudOk) {
+        void vscode.window
+          .showInformationMessage(
+            `TG Work ✓ Gravado: "${sess.countingLabel}" · ${durStr} · ${workDateLocal}`,
+            'Ver Saída'
+          )
+          .then((pick) => {
+            if (pick === 'Ver Saída') {
+              tgIdeLogChannel?.show(true);
+            }
+          });
+      } else if (syncCloud) {
+        void vscode.window
+          .showWarningMessage(
+            `TG Work: PC gravado, Firestore falhou: ${errorMsg}`,
+            'Ver Saída'
+          )
+          .then((pick) => {
+            if (pick === 'Ver Saída') {
+              tgIdeLogChannel?.show(true);
+            }
+          });
+      } else {
+        void vscode.window.showInformationMessage(
+          `TG Work: "${sess.countingLabel}" · ${durStr} · gravado no PC (sync nuvem desligado).`
+        );
+      }
+    } else {
+      void vscode.window.setStatusBarMessage(
+        `TG Work ✓ ${sess.countingLabel} · ${durStr}${cloudOk ? ' · nuvem' : ''} · ${reason}`,
+        6000
+      );
+    }
+
+    lastAutoFlushAtMs = Date.now();
+    await startOrRefreshSession(context);
+    return 'ok';
+  } catch (e) {
+    statusHandle?.dispose();
+    const msg = e instanceof Error ? e.message : String(e);
+    tgIdeLog(`Flush erro (${reason}): ${msg}`);
+    if (!quiet) {
+      void vscode.window.showErrorMessage(`TG Work: erro ao gravar: ${msg}`);
+    }
+    await startOrRefreshSession(context).catch(() => undefined);
+    return 'error';
+  }
+}
+
+async function maybeAutoFlush(
+  context: vscode.ExtensionContext,
+  reason: string
+): Promise<void> {
+  const now = Date.now();
+  if (now - lastAutoFlushAtMs < AUTO_FLUSH_DEBOUNCE_MS) {
+    tgIdeLog(`Auto-flush ignorado (debounce) · ${reason}`);
+    return;
+  }
+  if (!current) {
+    return;
+  }
+  const minSec = cfg().get<number>('minSessionSeconds') ?? 30;
+  const elapsed = Math.floor((now - current.openedAtMs) / 1000);
+  if (elapsed < minSec) {
+    tgIdeLog(`Auto-flush: sessão ainda curta (${elapsed}s < ${minSec}s) · ${reason}`);
+    return;
+  }
+  await flushActiveSession(context, { quiet: true, reason });
+}
+
+function resolveGitHeadLogPath(folderFsPath: string): string | undefined {
+  try {
+    let dir = folderFsPath;
+    for (let i = 0; i < 12; i++) {
+      const headLog = path.join(dir, '.git', 'logs', 'HEAD');
+      if (fs.existsSync(headLog)) {
+        return headLog;
+      }
+      const gitFile = path.join(dir, '.git');
+      if (fs.existsSync(gitFile) && fs.statSync(gitFile).isFile()) {
+        const txt = fs.readFileSync(gitFile, 'utf8').trim();
+        const m = /^gitdir:\s*(.+)$/i.exec(txt);
+        if (m?.[1]) {
+          const gitDir = path.resolve(dir, m[1].trim());
+          const nested = path.join(gitDir, 'logs', 'HEAD');
+          if (fs.existsSync(nested)) {
+            return nested;
+          }
+        }
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
+    }
+  } catch {
+    //
+  }
+  return undefined;
+}
+
+function installAutoFlushWatchers(context: vscode.ExtensionContext): void {
+  const headStamp = new Map<string, string>();
+
+  const refreshHeadStamps = (): void => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    for (const f of folders) {
+      const headLog = resolveGitHeadLogPath(f.uri.fsPath);
+      if (!headLog) {
+        continue;
+      }
+      try {
+        const st = fs.statSync(headLog);
+        const key = `${st.mtimeMs}:${st.size}`;
+        if (!headStamp.has(headLog)) {
+          headStamp.set(headLog, key);
+        }
+      } catch {
+        //
+      }
+    }
+  };
+
+  refreshHeadStamps();
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => refreshHeadStamps())
+  );
+
+  const gitPoll = setInterval(() => {
+    if (cfg().get<boolean>('autoFlushOnGitCommit') === false) {
+      return;
+    }
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    for (const f of folders) {
+      const headLog = resolveGitHeadLogPath(f.uri.fsPath);
+      if (!headLog) {
+        continue;
+      }
+      try {
+        const st = fs.statSync(headLog);
+        const key = `${st.mtimeMs}:${st.size}`;
+        const prev = headStamp.get(headLog);
+        if (prev === undefined) {
+          headStamp.set(headLog, key);
+          continue;
+        }
+        if (prev !== key) {
+          headStamp.set(headLog, key);
+          tgIdeLog(`Git commit detectado · ${f.name}`);
+          void maybeAutoFlush(context, `git-commit:${f.name}`).catch(() => undefined);
+        }
+      } catch {
+        //
+      }
+    }
+  }, 2500);
+  context.subscriptions.push({ dispose: () => clearInterval(gitPoll) });
+
+  const flushReqPoll = setInterval(() => {
+    const req = readAndClearFlushRequest();
+    if (!req) {
+      return;
+    }
+    const label = req.source ? `${req.reason}:${req.source}` : req.reason;
+    tgIdeLog(`Pedido externo de flush · ${label}`);
+    void maybeAutoFlush(context, label).catch(() => undefined);
+  }, 1500);
+  context.subscriptions.push({ dispose: () => clearInterval(flushReqPoll) });
+
+  // Garantir que a pasta existe para o watcher externo
+  try {
+    fs.mkdirSync(localIdeSessionsDir(), { recursive: true });
+  } catch {
+    //
+  }
+  tgIdeLog(`Auto-flush activo · pedido externo: ${flushRequestFilePath()}`);
+}
+
 async function startOrRefreshSession(context: vscode.ExtensionContext): Promise<void> {
   const base = await snapshotSessionBase(context);
   if (!base) {
@@ -1056,6 +1365,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await recoverAndPromptPendingOnActivate(context).catch(() => undefined);
   // Pré-aquecer token mesmo se não havia sessões pendentes (token fica em cache para o fecho)
   void proactiveTokenRefresh(context);
+  installAutoFlushWatchers(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('tgWorkIde.showOutput', () => {
@@ -1099,148 +1409,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.commands.registerCommand('tgWorkIde.flushSession', async () => {
-      if (!current) {
+      const result = await flushActiveSession(context, { reason: 'manual' });
+      if (result === 'no-session') {
         void vscode.window.showInformationMessage(
           onlyShortcutWorkspaceSetting()
             ? 'TG Work: sem sessão activa — abre um *.code-workspace ou define onlyShortcutWorkspace = false.'
             : 'TG Work: sem sessão activa neste momento.'
         );
-        return;
       }
-
-      const snapLabel = current.countingLabel;
-      const snapSec = Math.max(0, Math.floor((Date.now() - current.openedAtMs) / 1000));
-
-      // Spinner na barra enquanto grava
-      const statusHandle = vscode.window.setStatusBarMessage(
-        `$(sync~spin) TG Work: a gravar "${snapLabel}"...`,
-        30_000
-      );
-
-      let cloudOk = false;
-      let errorMsg = '';
-
-      try {
-        // Capturar cloudOk interceptando o log (solução simples: checar se sessão gravou)
-        const closedAtMs = Date.now();
-        const sess = current;
-        if (sess) {
-          stopHeartbeat();
-          current = undefined;
-          refreshSessionStatusUi(context);
-
-          const durationSeconds = Math.max(0, Math.floor((closedAtMs - sess.openedAtMs) / 1000));
-          const minSec = cfg().get<number>('minSessionSeconds') ?? 30;
-          const editor = detectEditor();
-          clearInProgressSession(sess.sessionId);
-
-          if (durationSeconds < minSec) {
-            statusHandle.dispose();
-            void vscode.window.showWarningMessage(
-              `TG Work: só ${formatDurationHumanPt(durationSeconds)} — mínimo é ${minSec}s (tgWorkIde.minSessionSeconds). Contagem recomeçada.`
-            );
-            await startOrRefreshSession(context);
-            return;
-          }
-
-          const openedIso = new Date(sess.openedAtMs).toISOString();
-          const closedIso = new Date(closedAtMs).toISOString();
-          const workDateLocal = yyyyMmDdLocal(sess.openedAtMs);
-
-          // PC
-          try {
-            appendIdeSessionLocally({
-              recordedAt: closedIso,
-              workDateLocal,
-              openedAt: openedIso,
-              closedAt: closedIso,
-              durationSeconds,
-              workspaceShortcut: sess.workspaceFileFsPath ?? '',
-              workspaceMode: sess.workspaceFileFsPath ? 'code-workspace' : 'folder',
-              workspaceRoot: sess.countingFolderFsPath,
-              workspaceName: sess.countingLabel,
-              workspaceWindowTitle: sess.workspaceWindowTitle,
-              countingFolderFsPath: sess.countingFolderFsPath,
-              tgProjectId: sess.tgProjectId || '',
-              editor,
-              countingMode: 'window-open-to-close',
-            });
-            tgIdeLog(`PC: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal}`);
-          } catch (e) {
-            tgIdeLog(`PC: falha: ${e instanceof Error ? e.message : String(e)}`);
-          }
-
-          // Firestore
-          const syncCloud = cfg().get<boolean>('syncToFirestore') === true;
-          if (syncCloud) {
-            const uid = await context.secrets.get(SECRET_UID);
-            const refreshTok = await context.secrets.get(SECRET_REFRESH);
-            const apiKey = cfg().get<string>('firebaseApiKey') ?? '';
-            const projectId = cfg().get<string>('firebaseProjectId') ?? 'tg-work-2026';
-            if (uid && refreshTok && apiKey) {
-              try {
-                const access = await refreshIdTokenCached(apiKey, refreshTok);
-                const docId = randomUUID();
-                const body = ideSessionFirestoreFields({
-                  userId: uid,
-                  tgProjectId: sess.tgProjectId || '',
-                  workspaceRoot: sess.countingFolderFsPath,
-                  workspaceName: sess.countingLabel,
-                  editor,
-                  openedAtMs: sess.openedAtMs,
-                  closedAtMs,
-                  durationSeconds,
-                });
-                await firestoreCreateSessionLog({
-                  projectId,
-                  documentId: docId,
-                  accessToken: access,
-                  payload: body,
-                });
-                cloudOk = true;
-                tgIdeLog(`Firestore: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · doc=${docId}`);
-              } catch (e) {
-                errorMsg = e instanceof Error ? e.message : String(e);
-                tgIdeLog(`Firestore FALHOU: ${errorMsg}`);
-              }
-            } else {
-              errorMsg = 'sem login Firebase (comando «iniciar sessão Firebase»)';
-              tgIdeLog(`Firestore: ${errorMsg}`);
-            }
-          }
-
-          statusHandle.dispose();
-          const durStr = formatDurationHumanPt(durationSeconds);
-          if (cloudOk) {
-            void vscode.window.showInformationMessage(
-              `TG Work ✓ Gravado: "${sess.countingLabel}" · ${durStr} · ${workDateLocal}`,
-              'Ver Saída'
-            ).then((pick) => {
-              if (pick === 'Ver Saída') {
-                tgIdeLogChannel?.show(true);
-              }
-            });
-          } else if (syncCloud) {
-            void vscode.window.showWarningMessage(
-              `TG Work: PC gravado, Firestore falhou: ${errorMsg}`,
-              'Ver Saída'
-            ).then((pick) => {
-              if (pick === 'Ver Saída') {
-                tgIdeLogChannel?.show(true);
-              }
-            });
-          } else {
-            void vscode.window.showInformationMessage(
-              `TG Work: "${sess.countingLabel}" · ${durStr} · gravado no PC (sync nuvem desligado).`
-            );
-          }
-        }
-      } catch (e) {
-        statusHandle.dispose();
-        void vscode.window.showErrorMessage(`TG Work: erro ao gravar: ${e instanceof Error ? e.message : String(e)}`);
-      }
-
-      await startOrRefreshSession(context);
     })
   );
 

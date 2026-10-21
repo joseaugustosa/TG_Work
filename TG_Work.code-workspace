@@ -21,6 +21,7 @@
       "**/integrations/vscode-tg-work/**"
     ],
     "tgWorkIde.onlyShortcutWorkspace": true,
+    "tgWorkIde.autoFlushOnGitCommit": true,
     "tgWorkIde.syncToFirestore": true,
     "tgWorkIde.autoResolveFirestoreProject": true,
     "tgWorkIde.firebaseApiKey": "AIzaSyCGFqhIWMzXuz_lkkzv8jL586UseBEB8Xw",

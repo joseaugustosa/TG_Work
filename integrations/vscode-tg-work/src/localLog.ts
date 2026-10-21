@@ -36,6 +36,54 @@ function ideSessionsDir(): string {
   return path.dirname(fp);
 }
 
+/** Pasta local das sessões IDE (PC). */
+export function localIdeSessionsDir(): string {
+  return ideSessionsDir();
+}
+
+/**
+ * Pedido externo para gravar a sessão actual (commit, publish, etc.).
+ * A extensão lê e apaga este ficheiro.
+ */
+export function flushRequestFilePath(): string {
+  return path.join(ideSessionsDir(), 'flush-request.json');
+}
+
+export function writeFlushRequest(reason: string, source = ''): void {
+  const dir = ideSessionsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const payload = {
+    reason: reason.trim() || 'external',
+    source: source.trim(),
+    atMs: Date.now(),
+  };
+  fs.writeFileSync(flushRequestFilePath(), JSON.stringify(payload), 'utf8');
+}
+
+export function readAndClearFlushRequest(): { reason: string; source: string; atMs: number } | null {
+  const fp = flushRequestFilePath();
+  try {
+    if (!fs.existsSync(fp)) {
+      return null;
+    }
+    const txt = fs.readFileSync(fp, 'utf8');
+    fs.unlinkSync(fp);
+    const obj = JSON.parse(txt) as { reason?: string; source?: string; atMs?: number };
+    return {
+      reason: typeof obj.reason === 'string' ? obj.reason : 'external',
+      source: typeof obj.source === 'string' ? obj.source : '',
+      atMs: typeof obj.atMs === 'number' ? obj.atMs : Date.now(),
+    };
+  } catch {
+    try {
+      fs.unlinkSync(fp);
+    } catch {
+      //
+    }
+    return null;
+  }
+}
+
 function inProgressFilePath(sessionId: string): string {
   return path.join(ideSessionsDir(), `in-progress-${sessionId}.json`);
 }

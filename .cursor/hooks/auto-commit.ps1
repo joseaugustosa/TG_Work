@@ -64,6 +64,10 @@ try {
     git -c core.editor=true commit -m $msg 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "TG_Work auto-commit: $msg"
+        $flushScript = Join-Path $repoRoot 'scripts\request-ide-session-flush.ps1'
+        if (Test-Path -LiteralPath $flushScript) {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $flushScript -Reason git-commit -Source auto-commit | Out-Null
+        }
     }
 } finally {
     Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
