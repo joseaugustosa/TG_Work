@@ -1,9 +1,6 @@
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
-
 /// Kanban activo em todas as plataformas.
 bool get firestoreWorkloadReduceOnDesktop => false;
 
-/// Relógio de trabalho manual desligado no Windows Desktop (usa IDE session tracking no PC).
-bool get disableManualWorkTimerOnDesktop =>
-    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+/// Relógio manual disponível em todas as plataformas (Arrancar / Pausar / Parar / Gravar).
+/// A contagem IDE (extensão) continua em paralelo e é independente deste cartão.
+bool get disableManualWorkTimerOnDesktop => false;

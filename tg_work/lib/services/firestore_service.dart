@@ -969,6 +969,45 @@ class FirestoreService {
     });
   }
 
+  /// Grava o segmento actual no total e continua a contar (checkpoint).
+  Future<void> checkpointProjectWorkTimer(String userId) async {
+    if (userId.isEmpty) return;
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+
+    DocumentSnapshot<Map<String, dynamic>>? preloadSnap;
+    try {
+      preloadSnap = await clockRef.get();
+    } catch (_) {}
+    final d0 = preloadSnap?.data();
+    final pidEarly = (d0?['activeProjectId'] as String?)?.trim();
+    if (pidEarly != null && pidEarly.isNotEmpty) {
+      await _ensureUserProjectWorkIdMigratedOnce(_db, userId, pidEarly).catchError(
+        (e, st) =>
+            debugPrint('TG_Work: migrate antes do relógio (checkpoint): $e\n$st'),
+      );
+    }
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      if (!snap.exists) return;
+      final d = snap.data()!;
+      final pid = d['activeProjectId'] as String?;
+      final st = d['segmentStartedAt'] as Timestamp?;
+      if (pid == null || pid.trim().isEmpty || st == null) return;
+      final now = Timestamp.now();
+      final delta = now.toDate().difference(st.toDate()).inSeconds;
+      _transactionAddWorkedSeconds(tx, userId, pid.trim(), delta);
+      tx.set(
+        clockRef,
+        {
+          'activeProjectId': pid.trim(),
+          'segmentStartedAt': now,
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
   /// Para o relógio e grava o segmento atual no total do projeto.
   Future<void> stopProjectWorkTimer(String userId) async {
     if (userId.isEmpty) return;
