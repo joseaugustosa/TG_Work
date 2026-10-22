@@ -13,6 +13,7 @@ import '../../models/ide_session_kind.dart';
 import '../../utils/ide_project_session_summary.dart';
 import '../../utils/user_display.dart';
 import '../../utils/work_timer_format.dart';
+import '../../widgets/edit_ide_session_dialog.dart';
 import '../../widgets/ide_session_progressive_chart.dart';
 import '../../widgets/manual_ide_session_dialog.dart';
 import '../../widgets/status_kanban_board.dart';
@@ -775,6 +776,33 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                             color: Colors.grey.shade800,
                           ),
                         ),
+                        trailing: pendingCloud
+                            ? null
+                            : IconButton(
+                                tooltip: 'Editar tempo',
+                                icon: const Icon(
+                                  Icons.edit_outlined,
+                                  color: Color(0xFF1A237E),
+                                ),
+                                onPressed: () async {
+                                  final ok = await showEditIdeSessionDialog(
+                                    context,
+                                    service: _service,
+                                    userId: uid,
+                                    session: log,
+                                    projectLabel: sessionProjectLabel(log),
+                                  );
+                                  if (ok && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Tempo da sessão actualizado.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
                         isThreeLine: false,
                       ),
                     );

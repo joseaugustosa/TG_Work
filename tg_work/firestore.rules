@@ -85,13 +85,15 @@ service cloud.firestore {
         request.resource.data.durationSeconds is int &&
         request.resource.data.openedAt is timestamp &&
         request.resource.data.closedAt is timestamp;
+      // Extensão: PATCH closedAt+duration (+ tgProjectId vazio→id).
+      // App: pode editar openedAt/closedAt/durationSeconds (tempos na Agenda IDE / projetos).
       allow update: if request.auth != null &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.workspaceRoot == resource.data.workspaceRoot &&
         request.resource.data.workspaceName == resource.data.workspaceName &&
         request.resource.data.editor == resource.data.editor &&
-        request.resource.data.openedAt == resource.data.openedAt &&
+        request.resource.data.openedAt is timestamp &&
         request.resource.data.closedAt is timestamp &&
         request.resource.data.durationSeconds is int &&
         request.resource.data.durationSeconds >= 0 &&

@@ -6,6 +6,7 @@ import '../models/ide_session_log.dart';
 import '../models/ide_session_kind.dart';
 import '../services/firestore_service.dart';
 import '../utils/work_timer_format.dart';
+import 'edit_ide_session_dialog.dart';
 import 'manual_ide_session_dialog.dart';
 
 /// Lista sessões do projeto + botão para inserir sessão manual.
@@ -147,8 +148,35 @@ class ProjectIdeSessionsCard extends StatelessWidget {
                             height: 1.3,
                           ),
                         ),
-                        trailing: log.isManual
-                            ? IconButton(
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Editar tempo',
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: Color(0xFF1A237E),
+                                size: 20,
+                              ),
+                              onPressed: () async {
+                                final ok = await showEditIdeSessionDialog(
+                                  context,
+                                  service: service,
+                                  userId: userId,
+                                  session: log,
+                                  projectLabel: projectName,
+                                );
+                                if (ok && context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Tempo da sessão actualizado.'),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                            if (log.isManual)
+                              IconButton(
                                 tooltip: 'Apagar sessão manual',
                                 icon: Icon(
                                   Icons.delete_outline,
@@ -194,8 +222,9 @@ class ProjectIdeSessionsCard extends StatelessWidget {
                                     }
                                   }
                                 },
-                              )
-                            : null,
+                              ),
+                          ],
+                        ),
                       ),
                     if (logs.length > 25)
                       Text(

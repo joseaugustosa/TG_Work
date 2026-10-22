@@ -1152,6 +1152,45 @@ class FirestoreService {
     return ref.id;
   }
 
+  /// Actualiza duração e dia de uma sessão IDE (automática ou manual).
+  Future<void> updateIdeSessionTimes({
+    required String userId,
+    required String sessionId,
+    required DateTime workDay,
+    required int durationSeconds,
+  }) async {
+    if (userId.isEmpty || sessionId.isEmpty) {
+      throw ArgumentError('userId/sessionId');
+    }
+    if (durationSeconds <= 0) {
+      throw ArgumentError('durationSeconds deve ser > 0');
+    }
+
+    final ref = _db.collection('user_ide_session_logs').doc(sessionId);
+    final snap = await ref.get();
+    if (!snap.exists) {
+      throw StateError('Sessão não encontrada');
+    }
+    final data = snap.data();
+    if (data == null) {
+      throw StateError('Sessão sem dados');
+    }
+    if ((data['userId'] as String?) != userId) {
+      throw StateError('Sessão de outro utilizador');
+    }
+
+    final day = DateTime(workDay.year, workDay.month, workDay.day);
+    // Mantém a hora de fecho relativa ao dia escolhido (18h local, como sessões manuais).
+    final closedAt = day.add(const Duration(hours: 18));
+    final openedAt = closedAt.subtract(Duration(seconds: durationSeconds));
+
+    await ref.update({
+      'openedAt': Timestamp.fromDate(openedAt),
+      'closedAt': Timestamp.fromDate(closedAt),
+      'durationSeconds': durationSeconds,
+    });
+  }
+
   /// Apaga só sessões manuais (`source == manual`) do próprio utilizador.
   Future<void> deleteManualIdeSession({
     required String userId,
