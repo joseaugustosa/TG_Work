@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home_shell_screen.dart';
+import 'widgets/access_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,7 +50,7 @@ class TGWorkApp extends StatelessWidget {
             );
           }
           if (snapshot.hasData) {
-            return const HomeShellScreen();
+            return const AccessGate(child: HomeShellScreen());
           }
           return const LoginScreen();
         },

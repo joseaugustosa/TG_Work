@@ -1,78 +1,146 @@
 rules_version = '2';
 
 // Cola isto nas Regras do Firestore (Consola Firebase → Firestore → Regras) e publica.
-// Ajusta se já tiveres regras prórias — o importante é não bloquear `status_changes`.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    match /projects/{docId} {
-      allow read, write: if request.auth != null;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Tipo → Área → Subtipo (criados pelos utilizadores)
+    function appUserPath() {
+      return /databases/$(database)/documents/app_users/$(request.auth.uid);
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(appUserPath())
+        && get(appUserPath()).data.role == 'admin'
+        && get(appUserPath()).data.blocked != true
+        && get(appUserPath()).data.deleted != true;
+    }
+
+    function isActiveUser() {
+      return signedIn() && (
+        !exists(appUserPath())
+        || (
+          get(appUserPath()).data.blocked != true
+          && get(appUserPath()).data.deleted != true
+        )
+      );
+    }
+
+    function accessConfigPath() {
+      return /databases/$(database)/documents/app_config/access;
+    }
+
+    function bootstrapAdminAllowed() {
+      return !exists(accessConfigPath())
+        || get(accessConfigPath()).data.hasAdmin != true;
+    }
+
+    match /app_config/access {
+      // Leitura pública: só indica se o registo livre deve fechar (hasAdmin).
+      allow read: if true;
+      allow create, update: if signedIn() && (
+        isAdmin()
+        || (
+          request.resource.data.hasAdmin == true
+          && bootstrapAdminAllowed()
+        )
+      );
+    }
+
+    match /app_users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+
+      allow create: if signedIn() && (
+        (
+          request.auth.uid == userId
+          && request.resource.data.keys().hasAll(['email', 'role', 'blocked', 'deleted'])
+          && request.resource.data.blocked == false
+          && request.resource.data.deleted == false
+          && (
+            request.resource.data.role == 'user'
+            || (request.resource.data.role == 'admin' && bootstrapAdminAllowed())
+          )
+        )
+        || isAdmin()
+      );
+
+      allow update: if isAdmin()
+        || (
+          request.auth.uid == userId
+          && request.resource.data.role == 'admin'
+          && resource.data.role != 'admin'
+          && bootstrapAdminAllowed()
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /projects/{docId} {
+      allow read, write: if isActiveUser();
+    }
+
     match /project_types/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /project_areas/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /project_subtypes/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /themes/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /developments/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /projects/{projectId}/notes/{noteId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /themes/{themeId}/notes/{noteId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /developments/{devId}/notes/{noteId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
     match /status_changes/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isActiveUser();
     }
 
-    // Preferências por utilizador (faturação / projeto de tempo)
     match /user_settings/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isActiveUser() && request.auth.uid == userId;
     }
 
-    // Relógio de trabalho: um documento por utilizador
     match /user_work_clock/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isActiveUser() && request.auth.uid == userId;
     }
 
-    // Totais de segundos trabalhados (increment/transacções Flutter)
     match /user_project_work/{docId} {
-      allow read: if request.auth != null &&
+      allow read: if isActiveUser() &&
         (!resource.exists || resource.data.userId == request.auth.uid);
-      allow create, update: if request.auth != null &&
+      allow create, update: if isActiveUser() &&
         request.resource.data.userId == request.auth.uid;
-      allow delete: if request.auth != null &&
+      allow delete: if isActiveUser() &&
         resource.exists && resource.data.userId == request.auth.uid;
     }
 
-    // Sessões IDE (VS Code / Cursor → extensão): CREATE ao abrir (stub durationSeconds=0),
-    // PATCH só closedAt+durationSeconds ao fechar (campos imutáveis == resource).
     match /user_ide_session_logs/{docId} {
-      allow read: if request.auth != null &&
+      allow read: if isActiveUser() &&
         (!resource.exists || resource.data.userId == request.auth.uid);
-      allow create: if request.auth != null &&
+      allow create: if isActiveUser() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.keys().hasAll([
           'userId', 'workspaceRoot', 'workspaceName', 'tgProjectId', 'editor',
@@ -85,9 +153,7 @@ service cloud.firestore {
         request.resource.data.durationSeconds is int &&
         request.resource.data.openedAt is timestamp &&
         request.resource.data.closedAt is timestamp;
-      // Extensão: PATCH closedAt+duration (+ tgProjectId vazio→id).
-      // App: pode editar openedAt/closedAt/durationSeconds (tempos na Agenda IDE / projetos).
-      allow update: if request.auth != null &&
+      allow update: if isActiveUser() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.workspaceRoot == resource.data.workspaceRoot &&
@@ -105,23 +171,22 @@ service cloud.firestore {
             request.resource.data.tgProjectId.size() > 0
           )
         );
-      allow delete: if request.auth != null &&
+      allow delete: if isActiveUser() &&
         resource.data.userId == request.auth.uid &&
         resource.data.source == 'manual';
     }
 
     match /user_ide_schedule/{userId}/cards/{cardId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isActiveUser() && request.auth.uid == userId;
     }
 
-    // Totais do relatório por projeto (Agenda IDE) — doc ID = projectId
     match /user_ide_project_reports/{userId}/by_project/{projectId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create, update: if request.auth != null &&
+      allow read: if isActiveUser() && request.auth.uid == userId;
+      allow create, update: if isActiveUser() &&
         request.auth.uid == userId &&
         request.resource.data.userId == userId &&
         request.resource.data.projectId == projectId;
-      allow delete: if request.auth != null &&
+      allow delete: if isActiveUser() &&
         request.auth.uid == userId &&
         resource.data.userId == userId;
     }

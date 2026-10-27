@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,6 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
+  final _fs = FirestoreService();
   bool _loading = false;
   bool _obscurePassword = true;
 
@@ -111,12 +113,30 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        TextButton(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                          ),
-                          child: const Text('Não tens conta? Regista-te'),
+                        StreamBuilder<bool>(
+                          stream: _fs.watchHasAdminConfigured(),
+                          builder: (context, snap) {
+                            final registrationClosed = snap.data == true;
+                            if (registrationClosed) {
+                              return Text(
+                                'Pedidos de conta: contacta um administrador.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                ),
+                              );
+                            }
+                            return TextButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const RegisterScreen(),
+                                ),
+                              ),
+                              child: const Text('Não tens conta? Regista-te'),
+                            );
+                          },
                         ),
                       ],
                     ),

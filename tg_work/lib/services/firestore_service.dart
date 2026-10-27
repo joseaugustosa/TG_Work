@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'note_recording_storage.dart';
 import '../utils/user_display.dart';
 import '../utils/entity_change_summary.dart';
+import '../models/app_user.dart';
 import '../models/project.dart';
 import '../models/project_type.dart';
 import '../models/theme_item.dart';
@@ -1903,6 +1904,151 @@ class FirestoreService {
       );
       await upsertIdeProjectReport(snapshot);
     }
+  }
+
+  // ─── App users / admin ────────────────────────────────────────────────────
+
+  CollectionReference<Map<String, dynamic>> get _appUsers =>
+      _db.collection('app_users');
+
+  DocumentReference<Map<String, dynamic>> get _accessConfig =>
+      _db.collection('app_config').doc('access');
+
+  Stream<bool> watchHasAdminConfigured() {
+    return _accessConfig.snapshots().map((s) {
+      final data = s.data();
+      return data != null && data['hasAdmin'] == true;
+    });
+  }
+
+  Future<bool> hasAnyAdmin() async {
+    final cfg = await _accessConfig.get();
+    if (cfg.data()?['hasAdmin'] == true) return true;
+    final snap = await _appUsers.where('role', isEqualTo: 'admin').limit(20).get();
+    return snap.docs.any((d) {
+      final u = AppUser.fromMap(d.data(), d.id);
+      return u.isAdmin;
+    });
+  }
+
+  Stream<AppUser?> watchAppUser(String uid) {
+    if (uid.isEmpty) return Stream.value(null);
+    return _appUsers.doc(uid).snapshots().map((s) {
+      if (!s.exists || s.data() == null) return null;
+      return AppUser.fromMap(s.data()!, s.id);
+    });
+  }
+
+  Stream<List<AppUser>> watchAppUsers() {
+    return _appUsers.snapshots().map((s) {
+      final list = s.docs
+          .map((d) => AppUser.fromMap(d.data(), d.id))
+          .where((u) => !u.deleted)
+          .toList();
+      list.sort((a, b) {
+        final byRole = (b.role == AppUserRole.admin ? 1 : 0) -
+            (a.role == AppUserRole.admin ? 1 : 0);
+        if (byRole != 0) return byRole;
+        return a.email.compareTo(b.email);
+      });
+      return list;
+    });
+  }
+
+  /// Garante perfil em `app_users`. O primeiro utilizador torna-se admin.
+  Future<AppUser> ensureAppUserProfile({
+    required String uid,
+    required String email,
+    required String displayName,
+  }) async {
+    final ref = _appUsers.doc(uid);
+    final existing = await ref.get();
+    if (existing.exists && existing.data() != null) {
+      final user = AppUser.fromMap(existing.data()!, existing.id);
+      final name = displayName.trim();
+      final mail = email.trim().toLowerCase();
+      final patch = <String, dynamic>{};
+      if (name.isNotEmpty && user.displayName.trim() != name) {
+        patch['displayName'] = name;
+      }
+      if (mail.isNotEmpty && user.email.trim().toLowerCase() != mail) {
+        patch['email'] = mail;
+      }
+      if (patch.isNotEmpty) {
+        await ref.set(patch, SetOptions(merge: true));
+        return AppUser.fromMap({...existing.data()!, ...patch}, uid);
+      }
+      return user;
+    }
+
+    final makeAdmin = !(await hasAnyAdmin());
+    final now = DateTime.now();
+    final created = AppUser(
+      id: uid,
+      email: email,
+      displayName: displayName,
+      role: makeAdmin ? AppUserRole.admin : AppUserRole.user,
+      blocked: false,
+      deleted: false,
+      createdAt: now,
+      createdBy: uid,
+    );
+    await ref.set(created.toCreateMap());
+    if (makeAdmin) {
+      await _accessConfig.set({'hasAdmin': true}, SetOptions(merge: true));
+    }
+    return created;
+  }
+
+  /// Quando ainda não há admin: o utilizador atual assume o papel.
+  Future<void> claimFirstAdmin(String uid) async {
+    if (await hasAnyAdmin()) {
+      throw StateError('Já existe um administrador na app.');
+    }
+    await _appUsers.doc(uid).set(
+      {
+        'role': AppUserRole.admin.key,
+        'blocked': false,
+        'deleted': false,
+      },
+      SetOptions(merge: true),
+    );
+    await _accessConfig.set({'hasAdmin': true}, SetOptions(merge: true));
+  }
+
+  Future<void> writeAppUserProfile(AppUser user) async {
+    await _appUsers.doc(user.id).set(user.toCreateMap(), SetOptions(merge: true));
+    if (user.role == AppUserRole.admin && !user.deleted) {
+      await _accessConfig.set({'hasAdmin': true}, SetOptions(merge: true));
+    }
+  }
+
+  Future<void> setAppUserBlocked(String uid, bool blocked) async {
+    await _appUsers.doc(uid).set(
+      {'blocked': blocked},
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> setAppUserRole(String uid, AppUserRole role) async {
+    await _appUsers.doc(uid).set(
+      {'role': role.key},
+      SetOptions(merge: true),
+    );
+    if (role == AppUserRole.admin) {
+      await _accessConfig.set({'hasAdmin': true}, SetOptions(merge: true));
+    }
+  }
+
+  /// Soft-delete: a conta Auth pode continuar a existir, mas a app bloqueia o acesso.
+  Future<void> softDeleteAppUser(String uid) async {
+    await _appUsers.doc(uid).set(
+      {
+        'deleted': true,
+        'blocked': true,
+      },
+      SetOptions(merge: true),
+    );
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/project_type.dart';
 import '../../services/firestore_service.dart';
+import 'admin_users_section.dart';
 
 /// Aba Definições: Tipo → Área → Subtipo.
 class SettingsScreen extends StatefulWidget {
@@ -239,13 +240,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const AdminUsersSection(),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Definições',
+                'Definições de projeto',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
