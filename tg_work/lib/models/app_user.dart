@@ -48,6 +48,26 @@ class AppUser {
   bool get isAdmin => role == AppUserRole.admin && !blocked && !deleted;
   bool get isActive => !blocked && !deleted;
 
+  AppUser copyWith({
+    String? email,
+    String? displayName,
+    AppUserRole? role,
+    bool? blocked,
+    bool? deleted,
+    String? createdBy,
+  }) {
+    return AppUser(
+      id: id,
+      email: email ?? this.email,
+      displayName: displayName ?? this.displayName,
+      role: role ?? this.role,
+      blocked: blocked ?? this.blocked,
+      deleted: deleted ?? this.deleted,
+      createdAt: createdAt,
+      createdBy: createdBy ?? this.createdBy,
+    );
+  }
+
   factory AppUser.fromMap(Map<String, dynamic> map, String id) {
     return AppUser(
       id: id,

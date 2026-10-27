@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Ordem: fluxo típico no Kanban (exequível → em execução → concluído | não exequível).
-enum ProjectStatus { exequivel, emExecucao, concluido, naoExequivel }
+/// Ordem Kanban: exequível → em execução → pausa → concluído | não exequível.
+enum ProjectStatus { exequivel, emExecucao, pausa, concluido, naoExequivel }
 
 extension ProjectStatusExtension on ProjectStatus {
   String get label {
@@ -10,6 +10,8 @@ extension ProjectStatusExtension on ProjectStatus {
         return 'Exequível';
       case ProjectStatus.emExecucao:
         return 'Em execução';
+      case ProjectStatus.pausa:
+        return 'Pausa';
       case ProjectStatus.concluido:
         return 'Concluído';
       case ProjectStatus.naoExequivel:
@@ -23,18 +25,28 @@ extension ProjectStatusExtension on ProjectStatus {
         return 'exequivel';
       case ProjectStatus.emExecucao:
         return 'emExecucao';
+      case ProjectStatus.pausa:
+        return 'pausa';
       case ProjectStatus.concluido:
         return 'concluido';
       case ProjectStatus.naoExequivel:
         return 'naoExequivel';
     }
   }
+
+  bool get isTerminal =>
+      this == ProjectStatus.concluido || this == ProjectStatus.naoExequivel;
+
+  bool get countsWorkDays =>
+      this == ProjectStatus.emExecucao;
 }
 
 ProjectStatus projectStatusFromKey(String key) {
   switch (key) {
     case 'emExecucao':
       return ProjectStatus.emExecucao;
+    case 'pausa':
+      return ProjectStatus.pausa;
     case 'concluido':
       return ProjectStatus.concluido;
     case 'naoExequivel':
@@ -91,6 +103,12 @@ class Project {
   /// Nomes dos intervenientes (mesma ordem que [intervenientUserIds]).
   final List<String> intervenientUserNames;
 
+  /// Início da pausa atual (null se não estiver em pausa).
+  final DateTime? pausedAt;
+
+  /// Soma de milissegundos já passados em pausas anteriores (excluídos da contagem).
+  final int totalPausedMs;
+
   Project({
     required this.id,
     required this.name,
@@ -114,6 +132,8 @@ class Project {
     this.responsibleUserName = '',
     this.intervenientUserIds = const [],
     this.intervenientUserNames = const [],
+    this.pausedAt,
+    this.totalPausedMs = 0,
   });
 
   String get classificationLabel {
@@ -164,6 +184,9 @@ class Project {
     String? responsibleUserName,
     List<String>? intervenientUserIds,
     List<String>? intervenientUserNames,
+    DateTime? pausedAt,
+    bool clearPausedAt = false,
+    int? totalPausedMs,
   }) {
     return Project(
       id: id ?? this.id,
@@ -192,6 +215,8 @@ class Project {
       intervenientUserIds: intervenientUserIds ?? this.intervenientUserIds,
       intervenientUserNames:
           intervenientUserNames ?? this.intervenientUserNames,
+      pausedAt: clearPausedAt ? null : (pausedAt ?? this.pausedAt),
+      totalPausedMs: totalPausedMs ?? this.totalPausedMs,
     );
   }
 
@@ -243,6 +268,13 @@ class Project {
           (map['responsibleUserName'] as String?)?.trim() ?? '',
       intervenientUserIds: readStringList(map['intervenientUserIds']),
       intervenientUserNames: readStringList(map['intervenientUserNames']),
+      pausedAt: (map['pausedAt'] as Timestamp?)?.toDate(),
+      totalPausedMs: () {
+        final v = map['totalPausedMs'];
+        if (v is int) return v;
+        if (v is num) return v.toInt();
+        return 0;
+      }(),
     );
   }
 
@@ -281,6 +313,8 @@ class Project {
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList(),
+      'totalPausedMs': totalPausedMs < 0 ? 0 : totalPausedMs,
+      if (pausedAt != null) 'pausedAt': Timestamp.fromDate(pausedAt!),
     };
   }
 }

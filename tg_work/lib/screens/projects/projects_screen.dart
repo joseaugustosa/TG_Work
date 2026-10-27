@@ -15,6 +15,7 @@ import '../../widgets/note_recording_editor.dart';
 import '../../models/app_user.dart';
 import '../../widgets/project_classification_fields.dart';
 import '../../widgets/project_people_fields.dart';
+import '../../widgets/project_status_picker.dart';
 import '../../widgets/status_history_sheet.dart';
 import '../../widgets/status_kanban_board.dart';
 import '../../widgets/voice_dictation_text_field.dart';
@@ -48,6 +49,24 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   @override
   void dispose() {
     super.dispose();
+  }
+
+  Future<void> _changeStatus(
+    Project project, {
+    required String userId,
+    required String userName,
+  }) async {
+    final next = await showProjectStatusPicker(
+      context,
+      current: project.status,
+    );
+    if (next == null || next == project.status) return;
+    await _service.changeProjectStatus(
+      project,
+      newStatus: next,
+      userId: userId,
+      userName: userName,
+    );
   }
 
   @override
@@ -187,9 +206,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         columnWidth: 300,
                         onItemMoved: (project, status) async {
                           if (project.status == status) return;
-                          await _service.updateProject(
-                            project.copyWith(status: status),
-                            oldProject: project,
+                          await _service.changeProjectStatus(
+                            project,
+                            newStatus: status,
                             userId: user?.uid ?? '',
                             userName: userName,
                           );
@@ -252,7 +271,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                         ),
                                         PopupMenuButton<String>(
                                           onSelected: (value) async {
-                                            if (value == 'edit') {
+                                            if (value == 'status') {
+                                              await _changeStatus(
+                                                project,
+                                                userId: user?.uid ?? '',
+                                                userName: userName,
+                                              );
+                                            } else if (value == 'edit') {
                                               _showProjectDialog(
                                                 context,
                                                 _service,
@@ -272,6 +297,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                             }
                                           },
                                           itemBuilder: (_) => [
+                                            const PopupMenuItem(
+                                              value: 'status',
+                                              child: Text('Mudar estado'),
+                                            ),
                                             const PopupMenuItem(
                                               value: 'edit',
                                               child: Text('Editar'),
@@ -331,19 +360,35 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                       ),
                                     ],
                                     const SizedBox(height: 10),
-                                    StatusBadge(
-                                      label: project.status.label,
-                                      color: projectStatusColor(project.status),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: InkWell(
+                                        onTap: () => _changeStatus(
+                                          project,
+                                          userId: user?.uid ?? '',
+                                          userName: userName,
+                                        ),
+                                        borderRadius: BorderRadius.circular(20),
+                                        child: StatusBadge(
+                                          label: project.status.label,
+                                          color:
+                                              projectStatusColor(project.status),
+                                        ),
+                                      ),
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
                                       kanbanTimeSummaryPt(
                                         createdAt: project.createdAt,
                                         updatedAt: project.updatedAt,
-                                        isDone: project.status == ProjectStatus.concluido ||
-                                            project.status == ProjectStatus.naoExequivel,
-                                        isExequivel: project.status == ProjectStatus.exequivel,
+                                        isDone: project.status.isTerminal,
+                                        isExequivel:
+                                            project.status == ProjectStatus.exequivel,
+                                        isPausa:
+                                            project.status == ProjectStatus.pausa,
                                         execSinceDate: execDates[project.id],
+                                        pausedAt: project.pausedAt,
+                                        totalPausedMs: project.totalPausedMs,
                                       ),
                                       maxLines: 3,
                                       overflow: TextOverflow.ellipsis,
@@ -423,14 +468,28 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                StatusBadge(
-                                  label: project.status.label,
-                                  color: projectStatusColor(project.status),
+                                InkWell(
+                                  onTap: () => _changeStatus(
+                                    project,
+                                    userId: user?.uid ?? '',
+                                    userName: userName,
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: StatusBadge(
+                                    label: project.status.label,
+                                    color: projectStatusColor(project.status),
+                                  ),
                                 ),
                                 const SizedBox(width: 4),
                                 PopupMenuButton<String>(
                                   onSelected: (value) async {
-                                    if (value == 'edit') {
+                                    if (value == 'status') {
+                                      await _changeStatus(
+                                        project,
+                                        userId: user?.uid ?? '',
+                                        userName: userName,
+                                      );
+                                    } else if (value == 'edit') {
                                       _showProjectDialog(
                                         context,
                                         _service,
@@ -449,6 +508,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                     }
                                   },
                                   itemBuilder: (_) => [
+                                    const PopupMenuItem(
+                                      value: 'status',
+                                      child: Text('Mudar estado'),
+                                    ),
                                     const PopupMenuItem(
                                         value: 'edit', child: Text('Editar')),
                                     const PopupMenuItem(

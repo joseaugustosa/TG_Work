@@ -9,6 +9,8 @@ Color projectStatusColor(ProjectStatus status) {
       return Colors.green;
     case ProjectStatus.emExecucao:
       return Colors.orange;
+    case ProjectStatus.pausa:
+      return Colors.blueGrey;
     case ProjectStatus.concluido:
       return Colors.teal;
     case ProjectStatus.naoExequivel:

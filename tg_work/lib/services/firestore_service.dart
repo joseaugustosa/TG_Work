@@ -196,6 +196,56 @@ class FirestoreService {
         .toList();
   }
 
+  /// Acumula tempo em pausa e marca/limpa [pausedAt] ao mudar de estado.
+  static Project applyProjectStatusSideEffects(
+    Project oldProject,
+    Project next, {
+    required DateTime now,
+  }) {
+    if (oldProject.status == next.status) {
+      return next.copyWith(
+        totalPausedMs: oldProject.totalPausedMs,
+        pausedAt: oldProject.pausedAt,
+        clearPausedAt: oldProject.pausedAt == null,
+      );
+    }
+
+    var totalPausedMs = oldProject.totalPausedMs;
+    DateTime? pausedAt = oldProject.pausedAt;
+    final enteringPause = next.status == ProjectStatus.pausa &&
+        oldProject.status != ProjectStatus.pausa;
+    final leavingPause = oldProject.status == ProjectStatus.pausa &&
+        next.status != ProjectStatus.pausa;
+
+    if (enteringPause) {
+      pausedAt = now;
+    }
+    if (leavingPause) {
+      final start = pausedAt ?? oldProject.updatedAt ?? now;
+      totalPausedMs += now.difference(start).inMilliseconds;
+      if (totalPausedMs < 0) totalPausedMs = 0;
+      pausedAt = null;
+    }
+
+    return next.copyWith(
+      totalPausedMs: totalPausedMs,
+      pausedAt: pausedAt,
+      clearPausedAt: pausedAt == null,
+    );
+  }
+
+  static void _patchProjectPauseFields(
+    Map<String, dynamic> map,
+    Project updated,
+  ) {
+    map['totalPausedMs'] = updated.totalPausedMs < 0 ? 0 : updated.totalPausedMs;
+    if (updated.pausedAt == null) {
+      map['pausedAt'] = FieldValue.delete();
+    } else {
+      map['pausedAt'] = Timestamp.fromDate(updated.pausedAt!);
+    }
+  }
+
   // ─── Projects ────────────────────────────────────────────────────────────
 
   Stream<List<Project>> getProjects() {
@@ -235,11 +285,12 @@ class FirestoreService {
   }) async {
     final now = DateTime.now();
     final actorName = normalizeStoredActorName(userName);
-    final updated = project.copyWith(
+    var updated = project.copyWith(
       updatedBy: userId,
       updatedByName: actorName,
       updatedAt: now,
     );
+    updated = applyProjectStatusSideEffects(oldProject, updated, now: now);
 
     final map = updated.toMap();
     _patchDescriptionRecordingUrl(
@@ -250,6 +301,7 @@ class FirestoreService {
     _patchIdeCountingFolderFsPath(map, oldProject, updated);
     _patchProjectClassification(map, oldProject, updated);
     _patchProjectPeople(map, oldProject, updated);
+    _patchProjectPauseFields(map, updated);
     await _db.collection('projects').doc(project.id).update(map);
 
     final summary =
@@ -262,6 +314,34 @@ class FirestoreService {
       userId: userId,
       userName: actorName,
       changedAt: now,
+      oldStatusKey: oldProject.status != updated.status
+          ? oldProject.status.key
+          : '',
+      oldStatusLabel: oldProject.status != updated.status
+          ? oldProject.status.label
+          : '',
+      newStatusKey: oldProject.status != updated.status
+          ? updated.status.key
+          : '',
+      newStatusLabel: oldProject.status != updated.status
+          ? updated.status.label
+          : '',
+    );
+  }
+
+  /// Atalho: só muda o estado (sem abrir o formulário completo).
+  Future<void> changeProjectStatus(
+    Project project, {
+    required ProjectStatus newStatus,
+    required String userId,
+    required String userName,
+  }) async {
+    if (project.status == newStatus) return;
+    await updateProject(
+      project.copyWith(status: newStatus),
+      oldProject: project,
+      userId: userId,
+      userName: userName,
     );
   }
 
@@ -2235,6 +2315,10 @@ class FirestoreService {
     required String userId,
     required String userName,
     required DateTime changedAt,
+    String oldStatusKey = '',
+    String oldStatusLabel = '',
+    String newStatusKey = '',
+    String newStatusLabel = '',
   }) async {
     final actor = normalizeStoredActorName(userName);
     final eid = entityId.trim();
@@ -2245,10 +2329,10 @@ class FirestoreService {
       entityName: entityName,
       kind: 'audit',
       summaryLine: summaryLine,
-      oldStatusKey: '',
-      oldStatusLabel: '',
-      newStatusKey: '',
-      newStatusLabel: '',
+      oldStatusKey: oldStatusKey,
+      oldStatusLabel: oldStatusLabel,
+      newStatusKey: newStatusKey,
+      newStatusLabel: newStatusLabel,
       changedBy: userId,
       changedByName: actor,
       changedAt: changedAt,

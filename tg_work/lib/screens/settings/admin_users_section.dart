@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/app_user.dart';
+import '../../services/admin_user_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
 
@@ -16,6 +17,7 @@ class AdminUsersSection extends StatefulWidget {
 class _AdminUsersSectionState extends State<AdminUsersSection> {
   final _fs = FirestoreService();
   final _auth = AuthService();
+  final _adminUsers = AdminUserService();
   bool _busy = false;
 
   String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -162,6 +164,140 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
       _toast(asAdmin ? 'Administrador criado.' : 'Utilizador criado.');
     } catch (e) {
       _toast('Erro ao criar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _editUser(AppUser user) async {
+    final nameCtrl = TextEditingController(text: user.displayName);
+    final emailCtrl = TextEditingController(text: user.email);
+    final passCtrl = TextEditingController();
+    var obscure = true;
+    var role = user.role;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: const Text('Editar utilizador'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome',
+                          border: OutlineInputBorder(),
+                        ),
+                        textCapitalization: TextCapitalization.words,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: emailCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Email (login)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: passCtrl,
+                        obscureText: obscure,
+                        decoration: InputDecoration(
+                          labelText: 'Nova palavra-passe (opcional)',
+                          helperText: 'Deixa vazio para não alterar.',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure ? Icons.visibility : Icons.visibility_off,
+                            ),
+                            onPressed: () =>
+                                setLocal(() => obscure = !obscure),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Papel',
+                          border: OutlineInputBorder(),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<AppUserRole>(
+                            isExpanded: true,
+                            value: role,
+                            items: AppUserRole.values
+                                .map(
+                                  (r) => DropdownMenuItem(
+                                    value: r,
+                                    child: Text(r.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: user.id == _uid
+                                ? null
+                                : (v) {
+                                    if (v != null) setLocal(() => role = v);
+                                  },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    final name = nameCtrl.text.trim();
+    final email = emailCtrl.text.trim();
+    final pass = passCtrl.text;
+    nameCtrl.dispose();
+    emailCtrl.dispose();
+    passCtrl.dispose();
+    if (ok != true) return;
+    if (email.isEmpty) {
+      _toast('O email é obrigatório.', error: true);
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      final note = await _adminUsers.updateUser(
+        user: user,
+        displayName: name,
+        email: email,
+        newPassword: pass.isEmpty ? null : pass,
+        role: role,
+      );
+      _toast(
+        note == null || note.isEmpty
+            ? 'Utilizador atualizado.'
+            : 'Utilizador atualizado. $note',
+      );
+    } catch (e) {
+      _toast('$e', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -379,6 +515,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                                 return _UserTile(
                                   user: u,
                                   isSelf: u.id == _uid,
+                                  onEdit: () => _editUser(u),
                                   onBlock: () => _toggleBlock(u),
                                   onMakeAdmin: () =>
                                       _setRole(u, AppUserRole.admin),
@@ -407,6 +544,7 @@ class _UserTile extends StatelessWidget {
   const _UserTile({
     required this.user,
     required this.isSelf,
+    required this.onEdit,
     required this.onBlock,
     required this.onMakeAdmin,
     required this.onMakeUser,
@@ -415,6 +553,7 @@ class _UserTile extends StatelessWidget {
 
   final AppUser user;
   final bool isSelf;
+  final VoidCallback onEdit;
   final VoidCallback onBlock;
   final VoidCallback onMakeAdmin;
   final VoidCallback onMakeUser;
@@ -450,6 +589,8 @@ class _UserTile extends StatelessWidget {
       trailing: PopupMenuButton<String>(
         onSelected: (v) {
           switch (v) {
+            case 'edit':
+              onEdit();
             case 'block':
               onBlock();
             case 'admin':
@@ -461,6 +602,10 @@ class _UserTile extends StatelessWidget {
           }
         },
         itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: 'edit',
+            child: Text('Editar dados'),
+          ),
           if (!isSelf)
             PopupMenuItem(
               value: 'block',

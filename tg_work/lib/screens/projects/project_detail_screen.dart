@@ -19,6 +19,7 @@ import '../../widgets/note_recording_playback.dart';
 import '../../models/app_user.dart';
 import '../../widgets/project_classification_fields.dart';
 import '../../widgets/project_people_fields.dart';
+import '../../widgets/project_status_picker.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../../widgets/project_work_timer_card.dart';
@@ -330,7 +331,24 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
             backgroundColor: const Color(0xFF1A237E),
             foregroundColor: Colors.white,
             actions: [
-              if (project != null)
+              if (project != null) ...[
+                IconButton(
+                  icon: const Icon(Icons.flag_outlined),
+                  tooltip: 'Mudar estado',
+                  onPressed: () async {
+                    final next = await showProjectStatusPicker(
+                      context,
+                      current: project.status,
+                    );
+                    if (next == null || next == project.status) return;
+                    await _service.changeProjectStatus(
+                      project,
+                      newStatus: next,
+                      userId: user?.uid ?? '',
+                      userName: userName,
+                    );
+                  },
+                ),
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: 'Editar',
@@ -341,6 +359,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     userName: userName,
                   ),
                 ),
+              ],
             ],
           ),
           body: stillLoadingProject || project == null
@@ -385,7 +404,16 @@ class _ProjectDetailBody extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _InfoCard(project: project, fmt: fmt),
+        _InfoCard(
+          project: project,
+          fmt: fmt,
+          onChangeStatus: (next) => service.changeProjectStatus(
+            project,
+            newStatus: next,
+            userId: userId,
+            userName: userName,
+          ),
+        ),
         const SizedBox(height: 16),
         if (!disableManualWorkTimerOnDesktop)
           ProjectWorkTimerCard(
@@ -504,8 +532,13 @@ class _ProjectDetailBody extends StatelessWidget {
 class _InfoCard extends StatelessWidget {
   final Project project;
   final DateFormat fmt;
+  final Future<void> Function(ProjectStatus next) onChangeStatus;
 
-  const _InfoCard({required this.project, required this.fmt});
+  const _InfoCard({
+    required this.project,
+    required this.fmt,
+    required this.onChangeStatus,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -539,9 +572,20 @@ class _InfoCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                StatusBadge(
-                  label: project.status.label,
-                  color: projectStatusColor(project.status),
+                InkWell(
+                  onTap: () async {
+                    final next = await showProjectStatusPicker(
+                      context,
+                      current: project.status,
+                    );
+                    if (next == null || next == project.status) return;
+                    await onChangeStatus(next);
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: StatusBadge(
+                    label: project.status.label,
+                    color: projectStatusColor(project.status),
+                  ),
                 ),
               ],
             ),
