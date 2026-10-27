@@ -32,15 +32,4 @@ IdeProjectReportSnapshot computeIdeProjectReportSnapshot({
   );
 }
 
-String projectStatusToKey(ProjectStatus status) {
-  switch (status) {
-    case ProjectStatus.exequivel:
-      return 'exequivel';
-    case ProjectStatus.emExecucao:
-      return 'emExecucao';
-    case ProjectStatus.concluido:
-      return 'concluido';
-    case ProjectStatus.naoExequivel:
-      return 'naoExequivel';
-  }
-}
+String projectStatusToKey(ProjectStatus status) => status.key;
