@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Cola isto nas Regras do Firestore (Consola Firebase → Firestore → Regras) e publica.
-// v1.2.12: admin pode ler coleções por-utilizador (sync Administração).
+// Admin (app_users.role == admin, ativo) tem acesso total a tudo.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -41,6 +41,11 @@ service cloud.firestore {
         || get(accessConfigPath()).data.hasAdmin != true;
     }
 
+    // ── Admin: acesso total a qualquer documento / subcoleção ───────────────
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
     match /app_config/access {
       // Leitura pública: só indica se o registo livre deve fechar (hasAdmin).
       allow read: if true;
@@ -54,8 +59,6 @@ service cloud.firestore {
     }
 
     match /app_users/{userId} {
-      // Admin lista tudo; utilizadores ativos leem perfis não apagados (atribuição
-      // a projetos); no bootstrap qualquer sessão autenticada pode ler.
       allow read: if signedIn() && (
         request.auth.uid == userId
         || isAdmin()
@@ -80,8 +83,6 @@ service cloud.firestore {
         || isAdmin()
       );
 
-      // Admin gere tudo; o próprio pode atualizar nome/email;
-      // ou reivindicar o 1.º admin enquanto bootstrapAdminAllowed().
       allow update: if isAdmin()
         || (
           request.auth.uid == userId
@@ -140,21 +141,16 @@ service cloud.firestore {
     }
 
     match /user_settings/{userId} {
-      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
-      allow write: if isActiveUser() && request.auth.uid == userId;
+      allow read, write: if isActiveUser() && request.auth.uid == userId;
     }
 
     match /user_work_clock/{userId} {
-      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
-      allow write: if isActiveUser() && request.auth.uid == userId;
+      allow read, write: if isActiveUser() && request.auth.uid == userId;
     }
 
     match /user_project_work/{docId} {
-      allow read: if isActiveUser() && (
-        isAdmin()
-        || !resource.exists
-        || resource.data.userId == request.auth.uid
-      );
+      allow read: if isActiveUser() &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
       allow create, update: if isActiveUser() &&
         request.resource.data.userId == request.auth.uid;
       allow delete: if isActiveUser() &&
@@ -162,11 +158,8 @@ service cloud.firestore {
     }
 
     match /user_ide_session_logs/{docId} {
-      allow read: if isActiveUser() && (
-        isAdmin()
-        || !resource.exists
-        || resource.data.userId == request.auth.uid
-      );
+      allow read: if isActiveUser() &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
       allow create: if isActiveUser() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.keys().hasAll([
@@ -204,12 +197,11 @@ service cloud.firestore {
     }
 
     match /user_ide_schedule/{userId}/cards/{cardId} {
-      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
-      allow write: if isActiveUser() && request.auth.uid == userId;
+      allow read, write: if isActiveUser() && request.auth.uid == userId;
     }
 
     match /user_ide_project_reports/{userId}/by_project/{projectId} {
-      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
+      allow read: if isActiveUser() && request.auth.uid == userId;
       allow create, update: if isActiveUser() &&
         request.auth.uid == userId &&
         request.resource.data.userId == userId &&
