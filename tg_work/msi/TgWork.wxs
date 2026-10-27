@@ -4,7 +4,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
       Name="TgWork"
-      Version="1.2.10.0"
+      Version="1.2.11.0"
       Language="1033"
       Manufacturer="TgWork"
       Scope="perMachine"
