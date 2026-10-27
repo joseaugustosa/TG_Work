@@ -1,6 +1,7 @@
 rules_version = '2';
 
 // Cola isto nas Regras do Firestore (Consola Firebase → Firestore → Regras) e publica.
+// v1.2.10: bootstrap admin + leitura app_users sem admin enquanto !hasAdmin.
 
 service cloud.firestore {
   match /databases/{database}/documents {
