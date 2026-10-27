@@ -1996,6 +1996,14 @@ class FirestoreService {
       );
     }
 
+    Future<void> safeScan(String label, Future<void> Function() run) async {
+      try {
+        await run();
+      } catch (e, st) {
+        debugPrint('TG_Work: sync utilizadores ($label): $e\n$st');
+      }
+    }
+
     Future<void> scanDocIds(String collection) async {
       final snap = await _db.collection(collection).get();
       for (final d in snap.docs) {
@@ -2003,58 +2011,85 @@ class FirestoreService {
       }
     }
 
-    await scanDocIds('user_settings');
-    await scanDocIds('user_work_clock');
+    await safeScan('user_settings', () => scanDocIds('user_settings'));
+    await safeScan('user_work_clock', () => scanDocIds('user_work_clock'));
 
-    final projects = await _db.collection('projects').get();
-    for (final d in projects.docs) {
-      final m = d.data();
-      add(
-        m['createdBy'] as String?,
-        name: m['createdByName'] as String?,
-      );
-      add(
-        m['updatedBy'] as String?,
-        name: m['updatedByName'] as String?,
-      );
-      add(
-        m['responsibleUserId'] as String?,
-        name: m['responsibleUserName'] as String?,
-      );
-      final intIds = m['intervenientUserIds'];
-      final intNames = m['intervenientUserNames'];
-      if (intIds is List) {
-        for (var i = 0; i < intIds.length; i++) {
-          final uid = intIds[i]?.toString();
-          String? name;
-          if (intNames is List && i < intNames.length) {
-            name = intNames[i]?.toString();
+    await safeScan('projects', () async {
+      final projects = await _db.collection('projects').get();
+      for (final d in projects.docs) {
+        final m = d.data();
+        add(
+          m['createdBy'] as String?,
+          name: m['createdByName'] as String?,
+        );
+        add(
+          m['updatedBy'] as String?,
+          name: m['updatedByName'] as String?,
+        );
+        add(
+          m['responsibleUserId'] as String?,
+          name: m['responsibleUserName'] as String?,
+        );
+        final intIds = m['intervenientUserIds'];
+        final intNames = m['intervenientUserNames'];
+        if (intIds is List) {
+          for (var i = 0; i < intIds.length; i++) {
+            final uid = intIds[i]?.toString();
+            String? name;
+            if (intNames is List && i < intNames.length) {
+              name = intNames[i]?.toString();
+            }
+            add(uid, name: name);
           }
-          add(uid, name: name);
         }
       }
-    }
+    });
 
-    final statusSnap =
-        await _db.collection('status_changes').limit(800).get();
-    for (final d in statusSnap.docs) {
-      final m = d.data();
-      add(
-        m['changedBy'] as String?,
-        name: m['changedByName'] as String?,
-      );
-    }
+    await safeScan('themes', () async {
+      final snap = await _db.collection('themes').get();
+      for (final d in snap.docs) {
+        final m = d.data();
+        add(m['createdBy'] as String?, name: m['createdByName'] as String?);
+        add(m['updatedBy'] as String?, name: m['updatedByName'] as String?);
+      }
+    });
 
-    final workSnap = await _db.collection('user_project_work').limit(500).get();
-    for (final d in workSnap.docs) {
-      add(d.data()['userId'] as String?);
-    }
+    await safeScan('developments', () async {
+      final snap = await _db.collection('developments').get();
+      for (final d in snap.docs) {
+        final m = d.data();
+        add(m['createdBy'] as String?, name: m['createdByName'] as String?);
+        add(m['updatedBy'] as String?, name: m['updatedByName'] as String?);
+      }
+    });
 
-    final ideSnap =
-        await _db.collection('user_ide_session_logs').limit(500).get();
-    for (final d in ideSnap.docs) {
-      add(d.data()['userId'] as String?);
-    }
+    await safeScan('status_changes', () async {
+      final statusSnap =
+          await _db.collection('status_changes').limit(800).get();
+      for (final d in statusSnap.docs) {
+        final m = d.data();
+        add(
+          m['changedBy'] as String?,
+          name: m['changedByName'] as String?,
+        );
+      }
+    });
+
+    await safeScan('user_project_work', () async {
+      final workSnap =
+          await _db.collection('user_project_work').limit(500).get();
+      for (final d in workSnap.docs) {
+        add(d.data()['userId'] as String?);
+      }
+    });
+
+    await safeScan('user_ide_session_logs', () async {
+      final ideSnap =
+          await _db.collection('user_ide_session_logs').limit(500).get();
+      for (final d in ideSnap.docs) {
+        add(d.data()['userId'] as String?);
+      }
+    });
 
     var created = 0;
     final now = DateTime.now();

@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Cola isto nas Regras do Firestore (Consola Firebase → Firestore → Regras) e publica.
-// v1.2.10: bootstrap admin + leitura app_users sem admin enquanto !hasAdmin.
+// v1.2.12: admin pode ler coleções por-utilizador (sync Administração).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -140,16 +140,21 @@ service cloud.firestore {
     }
 
     match /user_settings/{userId} {
-      allow read, write: if isActiveUser() && request.auth.uid == userId;
+      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
+      allow write: if isActiveUser() && request.auth.uid == userId;
     }
 
     match /user_work_clock/{userId} {
-      allow read, write: if isActiveUser() && request.auth.uid == userId;
+      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
+      allow write: if isActiveUser() && request.auth.uid == userId;
     }
 
     match /user_project_work/{docId} {
-      allow read: if isActiveUser() &&
-        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow read: if isActiveUser() && (
+        isAdmin()
+        || !resource.exists
+        || resource.data.userId == request.auth.uid
+      );
       allow create, update: if isActiveUser() &&
         request.resource.data.userId == request.auth.uid;
       allow delete: if isActiveUser() &&
@@ -157,8 +162,11 @@ service cloud.firestore {
     }
 
     match /user_ide_session_logs/{docId} {
-      allow read: if isActiveUser() &&
-        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow read: if isActiveUser() && (
+        isAdmin()
+        || !resource.exists
+        || resource.data.userId == request.auth.uid
+      );
       allow create: if isActiveUser() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.keys().hasAll([
@@ -196,11 +204,12 @@ service cloud.firestore {
     }
 
     match /user_ide_schedule/{userId}/cards/{cardId} {
-      allow read, write: if isActiveUser() && request.auth.uid == userId;
+      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
+      allow write: if isActiveUser() && request.auth.uid == userId;
     }
 
     match /user_ide_project_reports/{userId}/by_project/{projectId} {
-      allow read: if isActiveUser() && request.auth.uid == userId;
+      allow read: if isActiveUser() && (request.auth.uid == userId || isAdmin());
       allow create, update: if isActiveUser() &&
         request.auth.uid == userId &&
         request.resource.data.userId == userId &&
