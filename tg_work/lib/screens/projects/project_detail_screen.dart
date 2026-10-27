@@ -16,7 +16,9 @@ import '../../models/journal_note.dart';
 import '../../widgets/entity_notes_section.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/note_recording_playback.dart';
+import '../../models/app_user.dart';
 import '../../widgets/project_classification_fields.dart';
+import '../../widgets/project_people_fields.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../../widgets/project_work_timer_card.dart';
@@ -71,6 +73,10 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     String areaName = project.projectAreaName;
     String subtypeId = project.projectSubtypeId;
     String subtypeName = project.projectSubtypeName;
+    String responsibleId = project.responsibleUserId;
+    String responsibleName = project.responsibleUserName;
+    var intervenientIds = List<String>.from(project.intervenientUserIds);
+    var intervenientNames = List<String>.from(project.intervenientUserNames);
 
     try {
       await showDialog(
@@ -123,6 +129,32 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     onSubtypeChanged: (s) => setState(() {
                       subtypeId = s?.id ?? '';
                       subtypeName = s?.name ?? '';
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  ProjectPeopleFields(
+                    service: _service,
+                    responsibleUserId: responsibleId,
+                    intervenientUserIds: intervenientIds,
+                    onResponsibleChanged: (AppUser? u) => setState(() {
+                      responsibleId = u?.id ?? '';
+                      responsibleName =
+                          u == null ? '' : ProjectPeopleFields.labelOf(u);
+                      if (u != null) {
+                        final i = intervenientIds.indexOf(u.id);
+                        if (i >= 0) {
+                          intervenientIds = List<String>.from(intervenientIds)
+                            ..removeAt(i);
+                          intervenientNames =
+                              List<String>.from(intervenientNames)
+                                ..removeAt(i);
+                        }
+                      }
+                    }),
+                    onIntervenientsChanged: (list) => setState(() {
+                      intervenientIds = list.map((u) => u.id).toList();
+                      intervenientNames =
+                          list.map(ProjectPeopleFields.labelOf).toList();
                     }),
                   ),
                   const SizedBox(height: 12),
@@ -222,6 +254,10 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     projectAreaName: areaName,
                     projectSubtypeId: subtypeId,
                     projectSubtypeName: subtypeName,
+                    responsibleUserId: responsibleId,
+                    responsibleUserName: responsibleName,
+                    intervenientUserIds: intervenientIds,
+                    intervenientUserNames: intervenientNames,
                   );
                   await _service.updateProject(
                     updated,
@@ -518,6 +554,25 @@ class _InfoCard extends StatelessWidget {
                   Expanded(
                     child: SelectableText(
                       project.classificationLabel,
+                      style: TextStyle(
+                        color: Colors.grey[800],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (project.peopleLabel.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.groups_outlined, size: 16, color: Colors.grey[600]),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: SelectableText(
+                      project.peopleLabel,
                       style: TextStyle(
                         color: Colors.grey[800],
                         fontWeight: FontWeight.w500,

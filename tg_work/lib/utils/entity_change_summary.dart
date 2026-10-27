@@ -28,6 +28,13 @@ String? summarizeProjectEdit(Project old, Project next) {
       old.projectSubtypeName.trim() != next.projectSubtypeName.trim()) {
     p.add('subtipo');
   }
+  if (old.responsibleUserId.trim() != next.responsibleUserId.trim() ||
+      old.responsibleUserName.trim() != next.responsibleUserName.trim()) {
+    p.add('responsável');
+  }
+  if (!_sameStringList(old.intervenientUserIds, next.intervenientUserIds)) {
+    p.add('intervenientes');
+  }
   if (p.isEmpty) return null;
   return 'Alteração: ${p.join('; ')}';
 }
@@ -58,4 +65,12 @@ String? summarizeDevelopmentEdit(Development old, Development next) {
   }
   if (p.isEmpty) return null;
   return 'Alteração: ${p.join('; ')}';
+}
+
+bool _sameStringList(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].trim() != b[i].trim()) return false;
+  }
+  return true;
 }

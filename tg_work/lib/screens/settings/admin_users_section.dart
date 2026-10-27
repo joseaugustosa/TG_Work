@@ -30,6 +30,22 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
     );
   }
 
+  Future<void> _syncUsers() async {
+    setState(() => _busy = true);
+    try {
+      final n = await _fs.syncUsersFromFirestoreActivity();
+      _toast(
+        n == 0
+            ? 'Nenhum utilizador novo encontrado no Firestore.'
+            : 'Importados $n utilizador(es) já presentes no Firebase.',
+      );
+    } catch (e) {
+      _toast('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _claimAdmin() async {
     setState(() => _busy = true);
     try {
@@ -281,7 +297,9 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                     const SizedBox(height: 6),
                     Text(
                       isAdmin
-                          ? 'Cria, bloqueia ou remove utilizadores da app.'
+                          ? 'Cria, bloqueia ou remove utilizadores. '
+                              '«Sincronizar» importa contas já usadas no Firestore '
+                              '(Auth sozinha não lista emails no telemóvel/PC).'
                           : 'Ainda não há administrador. Torna-te admin para gerir contas.',
                       style: TextStyle(
                         fontSize: 12.5,
@@ -323,6 +341,11 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                                 : () => _createUser(asAdmin: true),
                             icon: const Icon(Icons.shield_outlined),
                             label: const Text('Novo admin'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _busy ? null : _syncUsers,
+                            icon: const Icon(Icons.sync),
+                            label: const Text('Sincronizar'),
                           ),
                         ],
                       ),

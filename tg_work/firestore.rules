@@ -54,12 +54,16 @@ service cloud.firestore {
     }
 
     match /app_users/{userId} {
-      // Durante o bootstrap (ainda sem admin) qualquer sessão autenticada pode ler,
-      // para o cliente antigo que consulta se já existe admin não falhar.
+      // Admin lista tudo; utilizadores ativos leem perfis não apagados (atribuição
+      // a projetos); no bootstrap qualquer sessão autenticada pode ler.
       allow read: if signedIn() && (
         request.auth.uid == userId
         || isAdmin()
         || bootstrapAdminAllowed()
+        || (
+          isActiveUser()
+          && resource.data.deleted != true
+        )
       );
 
       allow create: if signedIn() && (

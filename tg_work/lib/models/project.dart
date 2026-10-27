@@ -79,6 +79,18 @@ class Project {
   /// Nome do subtipo (cópia para listagens).
   final String projectSubtypeName;
 
+  /// Responsável pelo projeto (`app_users` / Auth uid).
+  final String responsibleUserId;
+
+  /// Nome do responsável (cópia para listagens).
+  final String responsibleUserName;
+
+  /// Intervenientes (uids).
+  final List<String> intervenientUserIds;
+
+  /// Nomes dos intervenientes (mesma ordem que [intervenientUserIds]).
+  final List<String> intervenientUserNames;
+
   Project({
     required this.id,
     required this.name,
@@ -98,6 +110,10 @@ class Project {
     this.projectAreaName = '',
     this.projectSubtypeId = '',
     this.projectSubtypeName = '',
+    this.responsibleUserId = '',
+    this.responsibleUserName = '',
+    this.intervenientUserIds = const [],
+    this.intervenientUserNames = const [],
   });
 
   String get classificationLabel {
@@ -106,6 +122,21 @@ class Project {
       projectAreaName.trim(),
       projectSubtypeName.trim(),
     ].where((s) => s.isNotEmpty);
+    return parts.join(' · ');
+  }
+
+  String get peopleLabel {
+    final parts = <String>[];
+    if (responsibleUserName.trim().isNotEmpty) {
+      parts.add('Resp.: ${responsibleUserName.trim()}');
+    }
+    final ints = intervenientUserNames
+        .map((n) => n.trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
+    if (ints.isNotEmpty) {
+      parts.add('Int.: ${ints.join(', ')}');
+    }
     return parts.join(' · ');
   }
 
@@ -129,6 +160,10 @@ class Project {
     String? projectAreaName,
     String? projectSubtypeId,
     String? projectSubtypeName,
+    String? responsibleUserId,
+    String? responsibleUserName,
+    List<String>? intervenientUserIds,
+    List<String>? intervenientUserNames,
   }) {
     return Project(
       id: id ?? this.id,
@@ -152,6 +187,11 @@ class Project {
       projectAreaName: projectAreaName ?? this.projectAreaName,
       projectSubtypeId: projectSubtypeId ?? this.projectSubtypeId,
       projectSubtypeName: projectSubtypeName ?? this.projectSubtypeName,
+      responsibleUserId: responsibleUserId ?? this.responsibleUserId,
+      responsibleUserName: responsibleUserName ?? this.responsibleUserName,
+      intervenientUserIds: intervenientUserIds ?? this.intervenientUserIds,
+      intervenientUserNames:
+          intervenientUserNames ?? this.intervenientUserNames,
     );
   }
 
@@ -171,6 +211,14 @@ class Project {
         (map['projectSubtypeName'] as String?)?.trim().isNotEmpty == true
             ? (map['projectSubtypeName'] as String).trim()
             : ((map['projectSubtype'] as String?)?.trim() ?? '');
+    List<String> readStringList(dynamic raw) {
+      if (raw is! List) return const [];
+      return raw
+          .map((e) => e?.toString().trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+
     return Project(
       id: id,
       name: map['name'] ?? '',
@@ -190,6 +238,11 @@ class Project {
       projectAreaName: areaName,
       projectSubtypeId: subtypeId,
       projectSubtypeName: subtypeName,
+      responsibleUserId: (map['responsibleUserId'] as String?)?.trim() ?? '',
+      responsibleUserName:
+          (map['responsibleUserName'] as String?)?.trim() ?? '',
+      intervenientUserIds: readStringList(map['intervenientUserIds']),
+      intervenientUserNames: readStringList(map['intervenientUserNames']),
     );
   }
 
@@ -218,6 +271,16 @@ class Project {
         'projectSubtypeId': projectSubtypeId.trim(),
       if (projectSubtypeName.trim().isNotEmpty)
         'projectSubtypeName': projectSubtypeName.trim(),
+      'responsibleUserId': responsibleUserId.trim(),
+      'responsibleUserName': responsibleUserName.trim(),
+      'intervenientUserIds': intervenientUserIds
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList(),
+      'intervenientUserNames': intervenientUserNames
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList(),
     };
   }
 }

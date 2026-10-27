@@ -176,6 +176,26 @@ class FirestoreService {
     map['projectSubtype'] = FieldValue.delete();
   }
 
+  static void _patchProjectPeople(
+    Map<String, dynamic> map,
+    Project oldProject,
+    Project updated,
+  ) {
+    if (updated.responsibleUserId.trim().isEmpty &&
+        oldProject.responsibleUserId.trim().isNotEmpty) {
+      map['responsibleUserId'] = '';
+      map['responsibleUserName'] = '';
+    }
+    map['intervenientUserIds'] = updated.intervenientUserIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    map['intervenientUserNames'] = updated.intervenientUserNames
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
   // ─── Projects ────────────────────────────────────────────────────────────
 
   Stream<List<Project>> getProjects() {
@@ -229,6 +249,7 @@ class FirestoreService {
     );
     _patchIdeCountingFolderFsPath(map, oldProject, updated);
     _patchProjectClassification(map, oldProject, updated);
+    _patchProjectPeople(map, oldProject, updated);
     await _db.collection('projects').doc(project.id).update(map);
 
     final summary =
@@ -1949,6 +1970,128 @@ class FirestoreService {
       });
       return list;
     });
+  }
+
+  /// Utilizadores ativos para atribuir a projetos (responsável / intervenientes).
+  Stream<List<AppUser>> watchActiveAppUsers() {
+    return watchAppUsers().map(
+      (list) => list.where((u) => u.isActive).toList(),
+    );
+  }
+
+  /// Importa uids já presentes no Firestore (projetos, relógios, etc.) para `app_users`.
+  /// (A Auth sozinha não lista contas a partir do cliente.)
+  Future<int> syncUsersFromFirestoreActivity() async {
+    final discovered = <String, ({String email, String name})>{};
+
+    void add(String? uid, {String? name, String? email}) {
+      final id = (uid ?? '').trim();
+      if (id.isEmpty) return;
+      final prev = discovered[id];
+      final n = (name ?? '').trim();
+      final e = (email ?? '').trim().toLowerCase();
+      discovered[id] = (
+        email: e.isNotEmpty ? e : (prev?.email ?? ''),
+        name: n.isNotEmpty ? n : (prev?.name ?? ''),
+      );
+    }
+
+    Future<void> scanDocIds(String collection) async {
+      final snap = await _db.collection(collection).get();
+      for (final d in snap.docs) {
+        add(d.id);
+      }
+    }
+
+    await scanDocIds('user_settings');
+    await scanDocIds('user_work_clock');
+
+    final projects = await _db.collection('projects').get();
+    for (final d in projects.docs) {
+      final m = d.data();
+      add(
+        m['createdBy'] as String?,
+        name: m['createdByName'] as String?,
+      );
+      add(
+        m['updatedBy'] as String?,
+        name: m['updatedByName'] as String?,
+      );
+      add(
+        m['responsibleUserId'] as String?,
+        name: m['responsibleUserName'] as String?,
+      );
+      final intIds = m['intervenientUserIds'];
+      final intNames = m['intervenientUserNames'];
+      if (intIds is List) {
+        for (var i = 0; i < intIds.length; i++) {
+          final uid = intIds[i]?.toString();
+          String? name;
+          if (intNames is List && i < intNames.length) {
+            name = intNames[i]?.toString();
+          }
+          add(uid, name: name);
+        }
+      }
+    }
+
+    final statusSnap =
+        await _db.collection('status_changes').limit(800).get();
+    for (final d in statusSnap.docs) {
+      final m = d.data();
+      add(
+        m['changedBy'] as String?,
+        name: m['changedByName'] as String?,
+      );
+    }
+
+    final workSnap = await _db.collection('user_project_work').limit(500).get();
+    for (final d in workSnap.docs) {
+      add(d.data()['userId'] as String?);
+    }
+
+    final ideSnap =
+        await _db.collection('user_ide_session_logs').limit(500).get();
+    for (final d in ideSnap.docs) {
+      add(d.data()['userId'] as String?);
+    }
+
+    var created = 0;
+    final now = DateTime.now();
+    for (final entry in discovered.entries) {
+      final ref = _appUsers.doc(entry.key);
+      final existing = await ref.get();
+      if (existing.exists) {
+        final data = existing.data() ?? {};
+        final patch = <String, dynamic>{};
+        if ((data['displayName'] as String?)?.trim().isNotEmpty != true &&
+            entry.value.name.isNotEmpty) {
+          patch['displayName'] = entry.value.name;
+        }
+        if ((data['email'] as String?)?.trim().isNotEmpty != true &&
+            entry.value.email.isNotEmpty) {
+          patch['email'] = entry.value.email;
+        }
+        if (patch.isNotEmpty) {
+          await ref.set(patch, SetOptions(merge: true));
+        }
+        continue;
+      }
+      await ref.set(
+        AppUser(
+          id: entry.key,
+          email: entry.value.email,
+          displayName: entry.value.name,
+          role: AppUserRole.user,
+          blocked: false,
+          deleted: false,
+          createdAt: now,
+          createdBy: 'firestore_sync',
+        ).toCreateMap(),
+      );
+      created++;
+    }
+    return created;
   }
 
   /// Garante perfil em `app_users`. O primeiro utilizador torna-se admin.
