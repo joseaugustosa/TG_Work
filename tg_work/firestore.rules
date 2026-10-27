@@ -53,7 +53,13 @@ service cloud.firestore {
     }
 
     match /app_users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      // Durante o bootstrap (ainda sem admin) qualquer sessão autenticada pode ler,
+      // para o cliente antigo que consulta se já existe admin não falhar.
+      allow read: if signedIn() && (
+        request.auth.uid == userId
+        || isAdmin()
+        || bootstrapAdminAllowed()
+      );
 
       allow create: if signedIn() && (
         (
@@ -69,7 +75,15 @@ service cloud.firestore {
         || isAdmin()
       );
 
+      // Admin gere tudo; o próprio pode atualizar nome/email;
+      // ou reivindicar o 1.º admin enquanto bootstrapAdminAllowed().
       allow update: if isAdmin()
+        || (
+          request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.blocked == resource.data.blocked
+          && request.resource.data.deleted == resource.data.deleted
+        )
         || (
           request.auth.uid == userId
           && request.resource.data.role == 'admin'

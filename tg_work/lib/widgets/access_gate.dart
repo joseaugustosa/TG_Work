@@ -18,7 +18,7 @@ class AccessGate extends StatefulWidget {
 class _AccessGateState extends State<AccessGate> {
   final _fs = FirestoreService();
   final _auth = AuthService();
-  late final Future<AppUser?> _ensureFuture;
+  Future<AppUser?>? _ensureFuture;
 
   @override
   void initState() {
@@ -34,6 +34,10 @@ class _AccessGateState extends State<AccessGate> {
       email: user.email ?? '',
       displayName: user.displayName ?? '',
     );
+  }
+
+  void _retry() {
+    setState(() => _ensureFuture = _ensure());
   }
 
   Future<void> _signOut() => _auth.signOut();
@@ -54,6 +58,7 @@ class _AccessGateState extends State<AccessGate> {
             title: 'Não foi possível validar o acesso',
             message: '${ensureSnap.error}',
             onSignOut: _signOut,
+            onRetry: _retry,
           );
         }
         return StreamBuilder<AppUser?>(
@@ -89,11 +94,13 @@ class _BlockedScaffold extends StatelessWidget {
     required this.title,
     required this.message,
     required this.onSignOut,
+    this.onRetry,
   });
 
   final String title;
   final String message;
   final Future<void> Function() onSignOut;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -123,6 +130,13 @@ class _BlockedScaffold extends StatelessWidget {
                   style: TextStyle(color: Colors.grey.shade700, height: 1.35),
                 ),
                 const SizedBox(height: 24),
+                if (onRetry != null) ...[
+                  FilledButton(
+                    onPressed: onRetry,
+                    child: const Text('Tentar novamente'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 FilledButton(
                   onPressed: () => onSignOut(),
                   child: const Text('Terminar sessão'),

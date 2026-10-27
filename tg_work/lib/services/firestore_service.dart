@@ -1921,14 +1921,10 @@ class FirestoreService {
     });
   }
 
+  /// Só usa `app_config/access` — listar `app_users` exige admin e rebenta no bootstrap.
   Future<bool> hasAnyAdmin() async {
     final cfg = await _accessConfig.get();
-    if (cfg.data()?['hasAdmin'] == true) return true;
-    final snap = await _appUsers.where('role', isEqualTo: 'admin').limit(20).get();
-    return snap.docs.any((d) {
-      final u = AppUser.fromMap(d.data(), d.id);
-      return u.isAdmin;
-    });
+    return cfg.data()?['hasAdmin'] == true;
   }
 
   Stream<AppUser?> watchAppUser(String uid) {
