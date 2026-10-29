@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../models/app_user.dart';
 import '../../models/project.dart';
 import '../../services/firestore_service.dart';
 import '../../widgets/project_classification_fields.dart';
@@ -30,7 +32,12 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Project>>(
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return StreamBuilder<AppUser?>(
+      stream: _service.watchAppUser(uid),
+      builder: (context, meSnap) {
+        final me = meSnap.data;
+        return StreamBuilder<List<Project>>(
       stream: _projectsStream,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -49,7 +56,13 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final allProjects = snap.data ?? [];
+        var allProjects = snap.data ?? [];
+        if (me == null) {
+          allProjects = [];
+        } else if (!me.isAdmin) {
+          allProjects =
+              allProjects.where((p) => me.canSeeProject(p.id)).toList();
+        }
         if (allProjects.isEmpty) {
           return Center(
             child: Text(
@@ -180,6 +193,8 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
             ),
           ],
         );
+      },
+    );
       },
     );
   }

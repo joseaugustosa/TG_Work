@@ -155,7 +155,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 ),
               ),
               Expanded(
-                child: StreamBuilder<List<Project>>(
+                child: StreamBuilder<AppUser?>(
+                  stream: _service.watchAppUser(user?.uid ?? ''),
+                  builder: (context, meSnap) {
+                    final me = meSnap.data;
+                    return StreamBuilder<List<Project>>(
                   stream: _projectsStream,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
@@ -164,7 +168,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     if (snapshot.hasError) {
                       return Center(child: Text('Erro: ${snapshot.error}'));
                     }
-                    final allProjects = snapshot.data ?? [];
+                    var allProjects = snapshot.data ?? [];
+                    if (me == null) {
+                      allProjects = [];
+                    } else if (!me.isAdmin) {
+                      allProjects = allProjects
+                          .where((p) => me.canSeeProject(p.id))
+                          .toList();
+                    }
                     final projects = filterProjectsByClassification(
                       allProjects,
                       typeId: _filterTypeId,
@@ -544,6 +555,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         );
                       },
                     );
+                  },
+                );
                   },
                 ),
               ),

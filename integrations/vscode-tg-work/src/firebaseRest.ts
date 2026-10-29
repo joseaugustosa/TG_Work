@@ -5,6 +5,8 @@ import { summarizeIdentityToolkitErrorBody } from './firebaseAuthErrors';
 /** Corpo `{ fields: {...} }` para Firestore REST. */
 export function ideSessionFirestoreFields(payload: {
   userId: string;
+  userEmail?: string;
+  userDisplayName?: string;
   tgProjectId: string;
   workspaceRoot: string;
   workspaceName: string;
@@ -13,25 +15,34 @@ export function ideSessionFirestoreFields(payload: {
   closedAtMs: number;
   durationSeconds: number;
 }) {
-  return {
-    fields: {
-      userId: { stringValue: payload.userId },
-      tgProjectId: { stringValue: payload.tgProjectId },
-      workspaceRoot: { stringValue: payload.workspaceRoot },
-      workspaceName: { stringValue: payload.workspaceName },
-      editor: { stringValue: payload.editor },
-      openedAt: { timestampValue: new Date(payload.openedAtMs).toISOString() },
-      closedAt: { timestampValue: new Date(payload.closedAtMs).toISOString() },
-      durationSeconds: { integerValue: String(payload.durationSeconds) },
-    },
+  const fields: Record<string, unknown> = {
+    userId: { stringValue: payload.userId },
+    tgProjectId: { stringValue: payload.tgProjectId },
+    workspaceRoot: { stringValue: payload.workspaceRoot },
+    workspaceName: { stringValue: payload.workspaceName },
+    editor: { stringValue: payload.editor },
+    openedAt: { timestampValue: new Date(payload.openedAtMs).toISOString() },
+    closedAt: { timestampValue: new Date(payload.closedAtMs).toISOString() },
+    durationSeconds: { integerValue: String(payload.durationSeconds) },
   };
+  const email = (payload.userEmail ?? '').trim();
+  const name = (payload.userDisplayName ?? '').trim();
+  if (email) fields.userEmail = { stringValue: email };
+  if (name) fields.userDisplayName = { stringValue: name };
+  return { fields };
 }
 
 export async function signInWithPassword(
   apiKey: string,
   email: string,
   password: string
-): Promise<{ idToken: string; refreshToken: string; localId: string }> {
+): Promise<{
+  idToken: string;
+  refreshToken: string;
+  localId: string;
+  email: string;
+  displayName: string;
+}> {
   const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(
     apiKey
   )}`;
@@ -61,6 +72,8 @@ export async function signInWithPassword(
     idToken: String(j.idToken),
     refreshToken: String(j.refreshToken),
     localId: String(j.localId),
+    email: String(j.email ?? email),
+    displayName: String(j.displayName ?? ''),
   };
 }
 

@@ -4,6 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class IdeSessionLog {
   final String id;
   final String userId;
+  /// Email / nome gravados pela extensão no login Firebase (identificação).
+  final String userEmail;
+  final String userDisplayName;
   final String workspaceRoot;
   final String workspaceName;
 
@@ -20,6 +23,8 @@ class IdeSessionLog {
   IdeSessionLog({
     required this.id,
     required this.userId,
+    this.userEmail = '',
+    this.userDisplayName = '',
     required this.workspaceRoot,
     required this.workspaceName,
     required this.tgProjectId,
@@ -32,9 +37,19 @@ class IdeSessionLog {
 
   bool get isManual => source.trim() == 'manual';
 
+  String get userLabel {
+    final n = userDisplayName.trim();
+    if (n.isNotEmpty) return n;
+    final e = userEmail.trim();
+    if (e.isNotEmpty) return e;
+    return userId;
+  }
+
   IdeSessionLog copyWith({String? tgProjectId}) => IdeSessionLog(
         id: id,
         userId: userId,
+        userEmail: userEmail,
+        userDisplayName: userDisplayName,
         workspaceRoot: workspaceRoot,
         workspaceName: workspaceName,
         tgProjectId: tgProjectId ?? this.tgProjectId,
@@ -66,6 +81,8 @@ class IdeSessionLog {
     return IdeSessionLog(
       id: docId,
       userId: uid,
+      userEmail: (m['userEmail'] as String?)?.trim() ?? '',
+      userDisplayName: (m['userDisplayName'] as String?)?.trim() ?? '',
       workspaceRoot: (m['workspaceRoot'] as String?) ?? '',
       workspaceName: (m['workspaceName'] as String?) ?? '',
       tgProjectId: (m['tgProjectId'] as String?) ?? '',

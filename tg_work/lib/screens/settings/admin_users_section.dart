@@ -2,9 +2,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/app_user.dart';
+import '../../models/project.dart';
 import '../../services/admin_user_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
+import '../../widgets/user_hours_panel.dart';
 
 /// Gestão de administradores e utilizadores (visível a admins / bootstrap).
 class AdminUsersSection extends StatefulWidget {
@@ -175,6 +177,12 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
     final passCtrl = TextEditingController();
     var obscure = true;
     var role = user.role;
+    var accessProjects = user.accessProjects;
+    var accessTree = user.accessTree;
+    var accessIdeAgenda = user.accessIdeAgenda;
+    var accessSettings = user.accessSettings;
+    var accessAllProjects = user.accessAllProjects;
+    var allowedIds = List<String>.from(user.allowedProjectIds);
 
     final ok = await showDialog<bool>(
       context: context,
@@ -184,10 +192,11 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
             return AlertDialog(
               title: const Text('Editar utilizador'),
               content: SizedBox(
-                width: 420,
+                width: 460,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       TextField(
                         controller: nameCtrl,
@@ -250,6 +259,91 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Acesso às áreas',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Projetos'),
+                        value: accessProjects,
+                        onChanged: (v) =>
+                            setLocal(() => accessProjects = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Árvore'),
+                        value: accessTree,
+                        onChanged: (v) => setLocal(() => accessTree = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Agenda IDE'),
+                        value: accessIdeAgenda,
+                        onChanged: (v) =>
+                            setLocal(() => accessIdeAgenda = v),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Definições'),
+                        value: accessSettings,
+                        onChanged: (v) =>
+                            setLocal(() => accessSettings = v),
+                      ),
+                      const Divider(),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Todos os projetos'),
+                        subtitle: const Text(
+                          'Se desligado, escolhe abaixo quais pode ver',
+                        ),
+                        value: accessAllProjects,
+                        onChanged: (v) =>
+                            setLocal(() => accessAllProjects = v),
+                      ),
+                      if (!accessAllProjects)
+                        StreamBuilder<List<Project>>(
+                          stream: _fs.getProjects(),
+                          builder: (context, snap) {
+                            final projects = snap.data ?? [];
+                            if (projects.isEmpty) {
+                              return const Text('Sem projetos.');
+                            }
+                            return Column(
+                              children: projects
+                                  .map(
+                                    (p) => CheckboxListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      title: Text(p.name),
+                                      value: allowedIds.contains(p.id),
+                                      onChanged: (v) {
+                                        setLocal(() {
+                                          if (v == true) {
+                                            if (!allowedIds.contains(p.id)) {
+                                              allowedIds = [...allowedIds, p.id];
+                                            }
+                                          } else {
+                                            allowedIds = allowedIds
+                                                .where((id) => id != p.id)
+                                                .toList();
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  )
+                                  .toList(),
+                            );
+                          },
+                        ),
+                      const SizedBox(height: 12),
+                      UserHoursPanel(user: user, service: _fs),
                     ],
                   ),
                 ),
@@ -290,6 +384,16 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
         email: email,
         newPassword: pass.isEmpty ? null : pass,
         role: role,
+      );
+      await _fs.updateAppUserAccess(
+        user.copyWith(
+          accessProjects: accessProjects,
+          accessTree: accessTree,
+          accessIdeAgenda: accessIdeAgenda,
+          accessSettings: accessSettings,
+          accessAllProjects: accessAllProjects,
+          allowedProjectIds: allowedIds,
+        ),
       );
       _toast(
         note == null || note.isEmpty
@@ -395,143 +499,165 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
               return const SizedBox.shrink();
             }
 
-            return Card(
-              margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Card(
+                  margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Icon(
-                          Icons.admin_panel_settings_outlined,
-                          color: Color(0xFF1A237E),
-                        ),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'Administração',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.admin_panel_settings_outlined,
                               color: Color(0xFF1A237E),
                             ),
-                          ),
-                        ),
-                        if (_busy)
-                          const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      isAdmin
-                          ? 'Cria, bloqueia ou remove utilizadores. '
-                              '«Sincronizar» importa contas já usadas no Firestore '
-                              '(Auth sozinha não lista emails no telemóvel/PC).'
-                          : 'Ainda não há administrador. Torna-te admin para gerir contas.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.35,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    if (!isAdmin)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: FilledButton.icon(
-                          onPressed: _busy ? null : _claimAdmin,
-                          icon: const Icon(Icons.verified_user_outlined),
-                          label: const Text('Tornar-me administrador'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF1A237E),
-                          ),
-                        ),
-                      )
-                    else ...[
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          FilledButton.icon(
-                            onPressed: _busy
-                                ? null
-                                : () => _createUser(asAdmin: false),
-                            icon: const Icon(Icons.person_add_outlined),
-                            label: const Text('Novo utilizador'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF1A237E),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Administração',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1A237E),
+                                ),
+                              ),
                             ),
+                            if (_busy)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          isAdmin
+                              ? 'Cria utilizadores, define acesso a Projetos / Árvore / '
+                                  'Agenda IDE / Definições e a projetos concretos. '
+                                  '«Sincronizar» importa contas já usadas no Firestore.'
+                              : 'Ainda não há administrador. Torna-te admin para gerir contas.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            color: Colors.grey.shade700,
                           ),
-                          OutlinedButton.icon(
-                            onPressed: _busy
-                                ? null
-                                : () => _createUser(asAdmin: true),
-                            icon: const Icon(Icons.shield_outlined),
-                            label: const Text('Novo admin'),
+                        ),
+                        const SizedBox(height: 10),
+                        if (!isAdmin)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: FilledButton.icon(
+                              onPressed: _busy ? null : _claimAdmin,
+                              icon: const Icon(Icons.verified_user_outlined),
+                              label: const Text('Tornar-me administrador'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF1A237E),
+                              ),
+                            ),
+                          )
+                        else ...[
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _createUser(asAdmin: false),
+                                icon: const Icon(Icons.person_add_outlined),
+                                label: const Text('Novo utilizador'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1A237E),
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _createUser(asAdmin: true),
+                                icon: const Icon(Icons.shield_outlined),
+                                label: const Text('Novo admin'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: _busy ? null : _syncUsers,
+                                icon: const Icon(Icons.sync),
+                                label: const Text('Sincronizar'),
+                              ),
+                            ],
                           ),
-                          OutlinedButton.icon(
-                            onPressed: _busy ? null : _syncUsers,
-                            icon: const Icon(Icons.sync),
-                            label: const Text('Sincronizar'),
+                          const SizedBox(height: 8),
+                          StreamBuilder<List<AppUser>>(
+                            stream: _fs.watchAppUsers(),
+                            builder: (context, listSnap) {
+                              if (listSnap.hasError) {
+                                return Text(
+                                  'Erro: ${listSnap.error}',
+                                  style: const TextStyle(color: Colors.red),
+                                );
+                              }
+                              final users = listSnap.data ?? [];
+                              if (users.isEmpty) {
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  child: Text(
+                                    'Sem utilizadores registados na app.',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                );
+                              }
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxHeight: 420),
+                                    child: ListView.builder(
+                                      shrinkWrap: true,
+                                      itemCount: users.length,
+                                      itemBuilder: (context, i) {
+                                        final u = users[i];
+                                        return _UserTile(
+                                          user: u,
+                                          service: _fs,
+                                          isSelf: u.id == _uid,
+                                          onEdit: () => _editUser(u),
+                                          onBlock: () => _toggleBlock(u),
+                                          onMakeAdmin: () =>
+                                              _setRole(u, AppUserRole.admin),
+                                          onMakeUser: () =>
+                                              _setRole(u, AppUserRole.user),
+                                          onDelete: () => _deleteUser(u),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  UsersHoursSummaryCard(
+                                    service: _fs,
+                                    users: users,
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      StreamBuilder<List<AppUser>>(
-                        stream: _fs.watchAppUsers(),
-                        builder: (context, listSnap) {
-                          if (listSnap.hasError) {
-                            return Text(
-                              'Erro: ${listSnap.error}',
-                              style: const TextStyle(color: Colors.red),
-                            );
-                          }
-                          final users = listSnap.data ?? [];
-                          if (users.isEmpty) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Text(
-                                'Sem utilizadores registados na app.',
-                                style: TextStyle(color: Colors.grey.shade600),
-                              ),
-                            );
-                          }
-                          return ConstrainedBox(
-                            constraints: const BoxConstraints(maxHeight: 320),
-                            child: ListView.builder(
-                              shrinkWrap: true,
-                              itemCount: users.length,
-                              itemBuilder: (context, i) {
-                                final u = users[i];
-                                return _UserTile(
-                                  user: u,
-                                  isSelf: u.id == _uid,
-                                  onEdit: () => _editUser(u),
-                                  onBlock: () => _toggleBlock(u),
-                                  onMakeAdmin: () =>
-                                      _setRole(u, AppUserRole.admin),
-                                  onMakeUser: () =>
-                                      _setRole(u, AppUserRole.user),
-                                  onDelete: () => _deleteUser(u),
-                                );
-                              },
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+              ],
             );
           },
         );
@@ -543,6 +669,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
 class _UserTile extends StatelessWidget {
   const _UserTile({
     required this.user,
+    required this.service,
     required this.isSelf,
     required this.onEdit,
     required this.onBlock,
@@ -552,12 +679,28 @@ class _UserTile extends StatelessWidget {
   });
 
   final AppUser user;
+  final FirestoreService service;
   final bool isSelf;
   final VoidCallback onEdit;
   final VoidCallback onBlock;
   final VoidCallback onMakeAdmin;
   final VoidCallback onMakeUser;
   final VoidCallback onDelete;
+
+  String get _accessHint {
+    if (user.isAdmin) return 'Admin · acesso total';
+    final parts = <String>[
+      if (user.accessProjects) 'Projetos',
+      if (user.accessTree) 'Árvore',
+      if (user.accessIdeAgenda) 'Agenda IDE',
+      if (user.accessSettings) 'Definições',
+    ];
+    final areas = parts.isEmpty ? 'sem áreas' : parts.join(', ');
+    final projects = user.accessAllProjects
+        ? 'todos os projetos'
+        : '${user.allowedProjectIds.length} projeto(s)';
+    return '$areas · $projects';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -569,10 +712,12 @@ class _UserTile extends StatelessWidget {
       user.role.label,
       if (user.blocked) 'Bloqueado',
       if (isSelf) 'Tu',
+      _accessHint,
     ].join(' · ');
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
       leading: CircleAvatar(
         backgroundColor: user.blocked
             ? Colors.red.shade100
@@ -584,50 +729,62 @@ class _UserTile extends StatelessWidget {
           color: user.blocked ? Colors.red : const Color(0xFF1A237E),
         ),
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-      trailing: PopupMenuButton<String>(
-        onSelected: (v) {
-          switch (v) {
-            case 'edit':
-              onEdit();
-            case 'block':
-              onBlock();
-            case 'admin':
-              onMakeAdmin();
-            case 'user':
-              onMakeUser();
-            case 'delete':
-              onDelete();
-          }
-        },
-        itemBuilder: (_) => [
-          const PopupMenuItem(
-            value: 'edit',
-            child: Text('Editar dados'),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
-          if (!isSelf)
-            PopupMenuItem(
-              value: 'block',
-              child: Text(user.blocked ? 'Desbloquear' : 'Bloquear'),
-            ),
-          if (user.role != AppUserRole.admin)
-            const PopupMenuItem(
-              value: 'admin',
-              child: Text('Tornar administrador'),
-            ),
-          if (user.role == AppUserRole.admin && !isSelf)
-            const PopupMenuItem(
-              value: 'user',
-              child: Text('Remover admin'),
-            ),
-          if (!isSelf)
-            const PopupMenuItem(
-              value: 'delete',
-              child: Text('Apagar da app'),
-            ),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              switch (v) {
+                case 'edit':
+                  onEdit();
+                case 'block':
+                  onBlock();
+                case 'admin':
+                  onMakeAdmin();
+                case 'user':
+                  onMakeUser();
+                case 'delete':
+                  onDelete();
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: Text('Editar / permissões'),
+              ),
+              if (!isSelf)
+                PopupMenuItem(
+                  value: 'block',
+                  child: Text(user.blocked ? 'Desbloquear' : 'Bloquear'),
+                ),
+              if (user.role != AppUserRole.admin)
+                const PopupMenuItem(
+                  value: 'admin',
+                  child: Text('Tornar administrador'),
+                ),
+              if (user.role == AppUserRole.admin && !isSelf)
+                const PopupMenuItem(
+                  value: 'user',
+                  child: Text('Remover admin'),
+                ),
+              if (!isSelf)
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Apagar da app'),
+                ),
+            ],
+          ),
         ],
       ),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 11.5)),
+      children: [
+        UserHoursPanel(user: user, service: service),
+      ],
     );
   }
 }

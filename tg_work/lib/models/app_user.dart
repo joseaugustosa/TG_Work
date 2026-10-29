@@ -34,6 +34,16 @@ class AppUser {
   final DateTime createdAt;
   final String createdBy;
 
+  /// Acesso às áreas da app (admin ignora e tem tudo).
+  final bool accessProjects;
+  final bool accessTree;
+  final bool accessIdeAgenda;
+  final bool accessSettings;
+
+  /// Se false, só vê [allowedProjectIds].
+  final bool accessAllProjects;
+  final List<String> allowedProjectIds;
+
   const AppUser({
     required this.id,
     required this.email,
@@ -43,10 +53,36 @@ class AppUser {
     this.deleted = false,
     required this.createdAt,
     this.createdBy = '',
+    this.accessProjects = true,
+    this.accessTree = true,
+    this.accessIdeAgenda = true,
+    this.accessSettings = true,
+    this.accessAllProjects = true,
+    this.allowedProjectIds = const [],
   });
 
   bool get isAdmin => role == AppUserRole.admin && !blocked && !deleted;
   bool get isActive => !blocked && !deleted;
+
+  String get label {
+    final n = displayName.trim();
+    if (n.isNotEmpty) return n;
+    final e = email.trim();
+    if (e.isNotEmpty) return e;
+    return id;
+  }
+
+  bool canOpenProjectsTab() => isAdmin || (isActive && accessProjects);
+  bool canOpenTreeTab() => isAdmin || (isActive && accessTree);
+  bool canOpenIdeAgendaTab() => isAdmin || (isActive && accessIdeAgenda);
+  bool canOpenSettingsTab() => isAdmin || (isActive && accessSettings);
+
+  bool canSeeProject(String projectId) {
+    if (isAdmin) return true;
+    if (!isActive || !accessProjects) return false;
+    if (accessAllProjects) return true;
+    return allowedProjectIds.contains(projectId);
+  }
 
   AppUser copyWith({
     String? email,
@@ -55,6 +91,12 @@ class AppUser {
     bool? blocked,
     bool? deleted,
     String? createdBy,
+    bool? accessProjects,
+    bool? accessTree,
+    bool? accessIdeAgenda,
+    bool? accessSettings,
+    bool? accessAllProjects,
+    List<String>? allowedProjectIds,
   }) {
     return AppUser(
       id: id,
@@ -65,10 +107,30 @@ class AppUser {
       deleted: deleted ?? this.deleted,
       createdAt: createdAt,
       createdBy: createdBy ?? this.createdBy,
+      accessProjects: accessProjects ?? this.accessProjects,
+      accessTree: accessTree ?? this.accessTree,
+      accessIdeAgenda: accessIdeAgenda ?? this.accessIdeAgenda,
+      accessSettings: accessSettings ?? this.accessSettings,
+      accessAllProjects: accessAllProjects ?? this.accessAllProjects,
+      allowedProjectIds: allowedProjectIds ?? this.allowedProjectIds,
     );
   }
 
   factory AppUser.fromMap(Map<String, dynamic> map, String id) {
+    List<String> ids(dynamic raw) {
+      if (raw is! List) return const [];
+      return raw
+          .map((e) => e?.toString().trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+
+    bool flag(String key, {bool defaultValue = true}) {
+      final v = map[key];
+      if (v == null) return defaultValue;
+      return v == true;
+    }
+
     return AppUser(
       id: id,
       email: (map['email'] as String?)?.trim() ?? '',
@@ -78,6 +140,12 @@ class AppUser {
       deleted: map['deleted'] == true,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       createdBy: (map['createdBy'] as String?) ?? '',
+      accessProjects: flag('accessProjects'),
+      accessTree: flag('accessTree'),
+      accessIdeAgenda: flag('accessIdeAgenda'),
+      accessSettings: flag('accessSettings'),
+      accessAllProjects: flag('accessAllProjects'),
+      allowedProjectIds: ids(map['allowedProjectIds']),
     );
   }
 
@@ -89,5 +157,20 @@ class AppUser {
         'deleted': deleted,
         'createdAt': Timestamp.fromDate(createdAt),
         'createdBy': createdBy,
+        'accessProjects': accessProjects,
+        'accessTree': accessTree,
+        'accessIdeAgenda': accessIdeAgenda,
+        'accessSettings': accessSettings,
+        'accessAllProjects': accessAllProjects,
+        'allowedProjectIds': allowedProjectIds,
+      };
+
+  Map<String, dynamic> toAccessPatchMap() => {
+        'accessProjects': accessProjects,
+        'accessTree': accessTree,
+        'accessIdeAgenda': accessIdeAgenda,
+        'accessSettings': accessSettings,
+        'accessAllProjects': accessAllProjects,
+        'allowedProjectIds': allowedProjectIds,
       };
 }

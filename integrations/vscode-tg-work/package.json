@@ -3,7 +3,7 @@
   "displayName": "TG Work IDE Session",
   "description": "Tempo IDE: stub Firestore ao abrir workspace, PATCH ao fechar; opcional Firebase TG Work.",
   "publisher": "tgwork",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "private": true,
   "engines": {
     "vscode": "^1.74.0"

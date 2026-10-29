@@ -2305,6 +2305,58 @@ class FirestoreService {
     );
   }
 
+  Future<void> updateAppUserAccess(AppUser user) async {
+    await _appUsers.doc(user.id).set(
+      user.toAccessPatchMap(),
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Sessões IDE concluídas de todos os utilizadores (admin — regras `isAdmin`).
+  Stream<List<IdeSessionLog>> watchAllCompletedIdeSessionLogs({
+    int limit = 4000,
+  }) {
+    return _db
+        .collection('user_ide_session_logs')
+        .limit(limit)
+        .snapshots()
+        .map((snap) {
+      final out = <IdeSessionLog>[];
+      for (final d in snap.docs) {
+        final log = IdeSessionLog.fromFirestore(d.id, d.data());
+        if (log != null && log.durationSeconds > 0) out.add(log);
+      }
+      return out;
+    });
+  }
+
+  /// Totais IDE: userId → segundos.
+  Stream<Map<String, int>> watchIdeSecondsByUser({int limit = 4000}) {
+    return watchAllCompletedIdeSessionLogs(limit: limit).map((logs) {
+      final map = <String, int>{};
+      for (final l in logs) {
+        map[l.userId] = (map[l.userId] ?? 0) + l.durationSeconds;
+      }
+      return map;
+    });
+  }
+
+  /// Totais IDE de um utilizador: projectId (ou `__sem_projeto__`) → segundos.
+  Stream<Map<String, int>> watchIdeSecondsByProjectForUser(
+    String userId, {
+    int limit = 2500,
+  }) {
+    return watchIdeSessionLogs(userId, limit: limit).map((page) {
+      final map = <String, int>{};
+      for (final l in page.completedSessions) {
+        final key =
+            l.tgProjectId.trim().isEmpty ? '__sem_projeto__' : l.tgProjectId.trim();
+        map[key] = (map[key] ?? 0) + l.durationSeconds;
+      }
+      return map;
+    });
+  }
+
   // ─── Internal ─────────────────────────────────────────────────────────────
 
   Future<void> _logAuditEntry({

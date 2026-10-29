@@ -730,6 +730,9 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                     final closedSameAsStub =
                         pendingCloud &&
                         log.closedAt.difference(log.openedAt).abs().inSeconds < 120;
+                    final worker = log.userLabel.trim().isEmpty
+                        ? log.userId
+                        : log.userLabel;
                     final tileTitle = pendingCloud
                         ? '${sessionProjectLabel(log)} · ${_editorLabelPt(log.editor)} · a decorrer…'
                         : '${sessionProjectLabel(log)} · ${_editorLabelPt(log.editor)} · ${formatWorkDurationSeconds(log.durationSeconds)}';
@@ -742,7 +745,8 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                     final duraLn = pendingCloud
                         ? 'Duração contabilizada na nuvem: 0 s (aguarda fecho IDE).'
                         : 'Duração contabilizada na nuvem: ${formatWorkDurationSeconds(log.durationSeconds)} (${log.durationSeconds} s)';
-                    final tileSub = 'Projeto: ${sessionProjectLabel(log)}\n'
+                    final tileSub = 'Utilizador: $worker\n'
+                        'Projeto: ${sessionProjectLabel(log)}\n'
                         'Workspace: ${log.workspaceName}\n'
                         'Abertura: ${dateTimePt(log.openedAt)}\n'
                         '$fechoNuvem\n'
