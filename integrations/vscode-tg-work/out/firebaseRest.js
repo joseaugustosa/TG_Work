@@ -14,18 +14,23 @@ const path = require("path");
 const firebaseAuthErrors_1 = require("./firebaseAuthErrors");
 /** Corpo `{ fields: {...} }` para Firestore REST. */
 function ideSessionFirestoreFields(payload) {
-    return {
-        fields: {
-            userId: { stringValue: payload.userId },
-            tgProjectId: { stringValue: payload.tgProjectId },
-            workspaceRoot: { stringValue: payload.workspaceRoot },
-            workspaceName: { stringValue: payload.workspaceName },
-            editor: { stringValue: payload.editor },
-            openedAt: { timestampValue: new Date(payload.openedAtMs).toISOString() },
-            closedAt: { timestampValue: new Date(payload.closedAtMs).toISOString() },
-            durationSeconds: { integerValue: String(payload.durationSeconds) },
-        },
+    const fields = {
+        userId: { stringValue: payload.userId },
+        tgProjectId: { stringValue: payload.tgProjectId },
+        workspaceRoot: { stringValue: payload.workspaceRoot },
+        workspaceName: { stringValue: payload.workspaceName },
+        editor: { stringValue: payload.editor },
+        openedAt: { timestampValue: new Date(payload.openedAtMs).toISOString() },
+        closedAt: { timestampValue: new Date(payload.closedAtMs).toISOString() },
+        durationSeconds: { integerValue: String(payload.durationSeconds) },
     };
+    const email = (payload.userEmail ?? '').trim();
+    const name = (payload.userDisplayName ?? '').trim();
+    if (email)
+        fields.userEmail = { stringValue: email };
+    if (name)
+        fields.userDisplayName = { stringValue: name };
+    return { fields };
 }
 async function signInWithPassword(apiKey, email, password) {
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`;
@@ -54,6 +59,8 @@ async function signInWithPassword(apiKey, email, password) {
         idToken: String(j.idToken),
         refreshToken: String(j.refreshToken),
         localId: String(j.localId),
+        email: String(j.email ?? email),
+        displayName: String(j.displayName ?? ''),
     };
 }
 let _accessTokenCache = null;

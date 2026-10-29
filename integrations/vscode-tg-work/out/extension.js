@@ -10,6 +10,8 @@ const firebaseRest_1 = require("./firebaseRest");
 const localLog_1 = require("./localLog");
 const SECRET_REFRESH = 'tgWorkIde.refresh_token';
 const SECRET_UID = 'tgWorkIde.local_id';
+const SECRET_EMAIL = 'tgWorkIde.email';
+const SECRET_DISPLAY_NAME = 'tgWorkIde.display_name';
 /** Ver → Saída → «TG Work IDE» — histórico de gravações PC/Firestore. */
 let tgIdeLogChannel;
 function tgIdeLog(line) {
@@ -227,6 +229,8 @@ async function registerCompletedSession(context, sess, notify) {
     const syncCloud = cfg().get('syncToFirestore') === true;
     if (syncCloud && context) {
         const uid = await context.secrets.get(SECRET_UID);
+        const userEmail = (await context.secrets.get(SECRET_EMAIL)) ?? '';
+        const userDisplayName = (await context.secrets.get(SECRET_DISPLAY_NAME)) ?? '';
         const refreshTok = await context.secrets.get(SECRET_REFRESH);
         const apiKey = cfg().get('firebaseApiKey') ?? '';
         const projectId = cfg().get('firebaseProjectId') ?? 'tg-work-2026';
@@ -236,6 +240,8 @@ async function registerCompletedSession(context, sess, notify) {
                 const docId = (0, crypto_1.randomUUID)();
                 const body = (0, firebaseRest_1.ideSessionFirestoreFields)({
                     userId: uid,
+                    userEmail,
+                    userDisplayName,
                     tgProjectId: sess.tgProjectId || '',
                     workspaceRoot: sess.countingFolderFsPath,
                     workspaceName: sess.countingLabel,
@@ -251,7 +257,7 @@ async function registerCompletedSession(context, sess, notify) {
                     payload: body,
                 });
                 cloudOk = true;
-                tgIdeLog(`Firestore: gravado · ${sess.countingLabel} · ${sess.durationSeconds}s · dia=${workDateLocal} · doc=${docId}`);
+                tgIdeLog(`Firestore: gravado · user=${userEmail || uid} · ${sess.countingLabel} · ${sess.durationSeconds}s · dia=${workDateLocal} · doc=${docId}`);
             }
             catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
@@ -799,6 +805,8 @@ async function flushActiveSession(context, opts = {}) {
         const syncCloud = cfg().get('syncToFirestore') === true;
         if (syncCloud) {
             const uid = await context.secrets.get(SECRET_UID);
+            const userEmail = (await context.secrets.get(SECRET_EMAIL)) ?? '';
+            const userDisplayName = (await context.secrets.get(SECRET_DISPLAY_NAME)) ?? '';
             const refreshTok = await context.secrets.get(SECRET_REFRESH);
             const apiKey = cfg().get('firebaseApiKey') ?? '';
             const projectId = cfg().get('firebaseProjectId') ?? 'tg-work-2026';
@@ -808,6 +816,8 @@ async function flushActiveSession(context, opts = {}) {
                     const docId = (0, crypto_1.randomUUID)();
                     const body = (0, firebaseRest_1.ideSessionFirestoreFields)({
                         userId: uid,
+                        userEmail,
+                        userDisplayName,
                         tgProjectId: sess.tgProjectId || '',
                         workspaceRoot: sess.countingFolderFsPath,
                         workspaceName: sess.countingLabel,
@@ -823,7 +833,7 @@ async function flushActiveSession(context, opts = {}) {
                         payload: body,
                     });
                     cloudOk = true;
-                    tgIdeLog(`Firestore: gravado · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · doc=${docId} · (${reason})`);
+                    tgIdeLog(`Firestore: gravado · user=${userEmail || uid} · ${sess.countingLabel} · ${durationSeconds}s · dia=${workDateLocal} · doc=${docId} · (${reason})`);
                 }
                 catch (e) {
                     errorMsg = e instanceof Error ? e.message : String(e);
@@ -1181,7 +1191,9 @@ async function activate(context) {
             const r = await (0, firebaseRest_1.signInWithPassword)(apiKey, emailTrim, password);
             await context.secrets.store(SECRET_REFRESH, r.refreshToken);
             await context.secrets.store(SECRET_UID, r.localId);
-            void vscode.window.showInformationMessage('TG Work IDE: sessão Firebase iniciada.');
+            await context.secrets.store(SECRET_EMAIL, r.email || emailTrim);
+            await context.secrets.store(SECRET_DISPLAY_NAME, r.displayName || '');
+            void vscode.window.showInformationMessage(`TG Work IDE: sessão Firebase iniciada (${r.email || emailTrim}).`);
         }
         catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -1194,6 +1206,8 @@ async function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand('tgWorkIde.signOut', async () => {
         await context.secrets.delete(SECRET_REFRESH);
         await context.secrets.delete(SECRET_UID);
+        await context.secrets.delete(SECRET_EMAIL);
+        await context.secrets.delete(SECRET_DISPLAY_NAME);
         tgFirestoreResolveMemo = undefined;
         (0, firebaseRest_1.clearAccessTokenCache)();
         void vscode.window.showInformationMessage('TG Work IDE: sessão Firebase terminada.');
