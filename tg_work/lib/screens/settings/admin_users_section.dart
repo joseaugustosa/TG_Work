@@ -181,6 +181,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
     var accessTree = user.accessTree;
     var accessIdeAgenda = user.accessIdeAgenda;
     var accessSettings = user.accessSettings;
+    var accessViewTimeExpense = user.accessViewTimeExpense;
     var accessAllProjects = user.accessAllProjects;
     var allowedIds = List<String>.from(user.allowedProjectIds);
 
@@ -295,6 +296,17 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                         onChanged: (v) =>
                             setLocal(() => accessSettings = v),
                       ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Tempo e despesa (projeto)'),
+                        subtitle: const Text(
+                          'No Perfil: taxa €/h e despesa estimada',
+                        ),
+                        value: accessViewTimeExpense,
+                        onChanged: (v) =>
+                            setLocal(() => accessViewTimeExpense = v),
+                      ),
                       const Divider(),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
@@ -391,6 +403,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
           accessTree: accessTree,
           accessIdeAgenda: accessIdeAgenda,
           accessSettings: accessSettings,
+          accessViewTimeExpense: accessViewTimeExpense,
           accessAllProjects: accessAllProjects,
           allowedProjectIds: allowedIds,
         ),
@@ -620,29 +633,19 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  ConstrainedBox(
-                                    constraints:
-                                        const BoxConstraints(maxHeight: 420),
-                                    child: ListView.builder(
-                                      shrinkWrap: true,
-                                      itemCount: users.length,
-                                      itemBuilder: (context, i) {
-                                        final u = users[i];
-                                        return _UserTile(
-                                          user: u,
-                                          service: _fs,
-                                          isSelf: u.id == _uid,
-                                          onEdit: () => _editUser(u),
-                                          onBlock: () => _toggleBlock(u),
-                                          onMakeAdmin: () =>
-                                              _setRole(u, AppUserRole.admin),
-                                          onMakeUser: () =>
-                                              _setRole(u, AppUserRole.user),
-                                          onDelete: () => _deleteUser(u),
-                                        );
-                                      },
+                                  for (final u in users)
+                                    _UserTile(
+                                      user: u,
+                                      service: _fs,
+                                      isSelf: u.id == _uid,
+                                      onEdit: () => _editUser(u),
+                                      onBlock: () => _toggleBlock(u),
+                                      onMakeAdmin: () =>
+                                          _setRole(u, AppUserRole.admin),
+                                      onMakeUser: () =>
+                                          _setRole(u, AppUserRole.user),
+                                      onDelete: () => _deleteUser(u),
                                     ),
-                                  ),
                                   const SizedBox(height: 8),
                                   UsersHoursSummaryCard(
                                     service: _fs,
@@ -694,6 +697,7 @@ class _UserTile extends StatelessWidget {
       if (user.accessTree) 'Árvore',
       if (user.accessIdeAgenda) 'Agenda IDE',
       if (user.accessSettings) 'Definições',
+      if (user.accessViewTimeExpense) 'Tempo/despesa',
     ];
     final areas = parts.isEmpty ? 'sem áreas' : parts.join(', ');
     final projects = user.accessAllProjects

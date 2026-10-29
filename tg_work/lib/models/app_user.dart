@@ -44,6 +44,10 @@ class AppUser {
   final bool accessAllProjects;
   final List<String> allowedProjectIds;
 
+  /// Ver «Tempo e despesa (projeto)» no Perfil (admin ignora).
+  /// Por omissão oculto — só admin ou quem o admin permitir.
+  final bool accessViewTimeExpense;
+
   const AppUser({
     required this.id,
     required this.email,
@@ -59,6 +63,7 @@ class AppUser {
     this.accessSettings = true,
     this.accessAllProjects = true,
     this.allowedProjectIds = const [],
+    this.accessViewTimeExpense = false,
   });
 
   bool get isAdmin => role == AppUserRole.admin && !blocked && !deleted;
@@ -84,6 +89,9 @@ class AppUser {
     return allowedProjectIds.contains(projectId);
   }
 
+  bool canViewTimeAndExpense() =>
+      isAdmin || (isActive && accessViewTimeExpense);
+
   AppUser copyWith({
     String? email,
     String? displayName,
@@ -97,6 +105,7 @@ class AppUser {
     bool? accessSettings,
     bool? accessAllProjects,
     List<String>? allowedProjectIds,
+    bool? accessViewTimeExpense,
   }) {
     return AppUser(
       id: id,
@@ -113,6 +122,8 @@ class AppUser {
       accessSettings: accessSettings ?? this.accessSettings,
       accessAllProjects: accessAllProjects ?? this.accessAllProjects,
       allowedProjectIds: allowedProjectIds ?? this.allowedProjectIds,
+      accessViewTimeExpense:
+          accessViewTimeExpense ?? this.accessViewTimeExpense,
     );
   }
 
@@ -146,6 +157,8 @@ class AppUser {
       accessSettings: flag('accessSettings'),
       accessAllProjects: flag('accessAllProjects'),
       allowedProjectIds: ids(map['allowedProjectIds']),
+      accessViewTimeExpense:
+          flag('accessViewTimeExpense', defaultValue: false),
     );
   }
 
@@ -163,6 +176,7 @@ class AppUser {
         'accessSettings': accessSettings,
         'accessAllProjects': accessAllProjects,
         'allowedProjectIds': allowedProjectIds,
+        'accessViewTimeExpense': accessViewTimeExpense,
       };
 
   Map<String, dynamic> toAccessPatchMap() => {
@@ -172,5 +186,6 @@ class AppUser {
         'accessSettings': accessSettings,
         'accessAllProjects': accessAllProjects,
         'allowedProjectIds': allowedProjectIds,
+        'accessViewTimeExpense': accessViewTimeExpense,
       };
 }

@@ -11,10 +11,14 @@ class UserHoursPanel extends StatelessWidget {
     super.key,
     required this.user,
     required this.service,
+    this.title,
+    this.asCard = false,
   });
 
   final AppUser user;
   final FirestoreService service;
+  final String? title;
+  final bool asCard;
 
   @override
   Widget build(BuildContext context) {
@@ -51,18 +55,29 @@ class UserHoursPanel extends StatelessWidget {
                     ideByProject.values.fold<int>(0, (a, b) => a + b);
                 final timerTotal =
                     timerByProject.values.fold<int>(0, (a, b) => a + b);
+                final grand = ideTotal + timerTotal;
 
-                return Column(
+                final body = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Horas de ${user.label}',
+                      title ?? 'Horas de ${user.label}',
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF1A237E),
+                        fontSize: 15,
                       ),
                     ),
                     const SizedBox(height: 6),
+                    Text(
+                      'Total: ${formatWorkDurationSeconds(grand)}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1A237E),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     Text(
                       'IDE: ${formatWorkDurationSeconds(ideTotal)}'
                       '${timerTotal > 0 ? ' · Relógio: ${formatWorkDurationSeconds(timerTotal)}' : ''}',
@@ -71,7 +86,16 @@ class UserHoursPanel extends StatelessWidget {
                         color: Colors.grey.shade800,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Por projeto',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
                     if (ids.isEmpty)
                       Text(
                         'Ainda sem tempo registado.',
@@ -109,6 +133,18 @@ class UserHoursPanel extends StatelessWidget {
                         );
                       }),
                   ],
+                );
+
+                if (!asCard) return body;
+                return Card(
+                  margin: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    child: body,
+                  ),
                 );
               },
             );

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../models/app_user.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 import '../../utils/user_display.dart';
 import '../../widgets/profile_billing_section.dart';
 import '../../widgets/profile_updates_section.dart';
+import '../../widgets/user_hours_panel.dart';
 
 /// Ver e alterar o nome no perfil Firebase. O email é mostrado; alterar email implica fluxos extra no Firebase.
 /// Com [embedded] true (ex.: aba no `HomeShellScreen`), não mostra AppBar próprio.
@@ -18,6 +21,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _auth = AuthService();
+  final _fs = FirestoreService();
   final _nameController = TextEditingController();
   bool _loading = false;
   bool _dirty = false;
@@ -164,9 +168,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 28),
-              const ProfileUpdatesSection(),
+              StreamBuilder<AppUser?>(
+                stream: _fs.watchAppUser(user?.uid ?? ''),
+                builder: (context, meSnap) {
+                  final me = meSnap.data;
+                  if (me == null) {
+                    return const SizedBox.shrink();
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      UserHoursPanel(
+                        user: me,
+                        service: _fs,
+                        title: 'O teu tempo de trabalho',
+                        asCard: true,
+                      ),
+                      if (me.canViewTimeAndExpense()) ...[
+                        const SizedBox(height: 28),
+                        const ProfileBillingSection(),
+                      ],
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: 28),
-              const ProfileBillingSection(),
+              const ProfileUpdatesSection(),
             ],
           ),
         ),

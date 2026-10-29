@@ -237,176 +237,197 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const AdminUsersSection(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Definições de projeto',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A237E),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Hierarquia: Tipo → Área → Subtipo. '
-                'Depois escolhes isto ao criar ou editar um projeto.',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.35,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  onPressed: _createType,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A237E),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AdminUsersSection(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Definições de projeto',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A237E),
                   ),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Novo tipo'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  'Hierarquia: Tipo → Área → Subtipo. '
+                  'Depois escolhes isto ao criar ou editar um projeto.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.icon(
+                    onPressed: _createType,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF1A237E),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Novo tipo'),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: StreamBuilder<List<ProjectType>>(
+          const SizedBox(height: 8),
+          StreamBuilder<List<ProjectType>>(
             stream: _service.watchProjectTypes(),
             builder: (context, typeSnap) {
               if (typeSnap.hasError) {
-                return Center(child: Text('Erro: ${typeSnap.error}'));
-              }
-              if (!typeSnap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final types = typeSnap.data ?? [];
-              if (types.isEmpty) {
-                return Center(
+                return Padding(
+                  padding: const EdgeInsets.all(24),
                   child: Text(
-                    'Ainda não há tipos.\nClica em «Novo tipo» para começar.',
+                    'Erro: ${typeSnap.error}',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600, height: 1.4),
                   ),
                 );
               }
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 28),
-                itemCount: types.length,
-                itemBuilder: (context, index) {
-                  final type = types[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              if (!typeSnap.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final types = typeSnap.data ?? [];
+              if (types.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'Ainda não há tipos.\nClica em «Novo tipo» para começar.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      height: 1.4,
                     ),
-                    child: ExpansionTile(
-                      key: PageStorageKey('type-${type.id}'),
-                      leading: const Icon(
-                        Icons.category_outlined,
-                        color: Color(0xFF1A237E),
-                      ),
-                      title: Text(
-                        type.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: const Text('Tipo', style: TextStyle(fontSize: 11)),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (v) async {
-                          if (v == 'add_area') await _createArea(type);
-                          if (v == 'rename') await _renameType(type);
-                          if (v == 'delete') await _deleteType(type);
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: 'add_area',
-                            child: Text('Nova área'),
+                  ),
+                );
+              }
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: Column(
+                  children: [
+                    for (final type in types)
+                      Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ExpansionTile(
+                          key: PageStorageKey('type-${type.id}'),
+                          leading: const Icon(
+                            Icons.category_outlined,
+                            color: Color(0xFF1A237E),
                           ),
-                          PopupMenuItem(
-                            value: 'rename',
-                            child: Text('Renomear'),
+                          title: Text(
+                            type.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Eliminar'),
+                          subtitle: const Text(
+                            'Tipo',
+                            style: TextStyle(fontSize: 11),
                           ),
-                        ],
-                      ),
-                      children: [
-                        StreamBuilder<List<ProjectArea>>(
-                          stream: _service.watchProjectAreas(typeId: type.id),
-                          builder: (context, areaSnap) {
-                            final areas = areaSnap.data ?? [];
-                            return Column(
-                              children: [
-                                if (areas.isEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      0,
-                                      16,
-                                      8,
-                                    ),
-                                    child: Text(
-                                      'Sem áreas. Usa o menu ⋮ → Nova área.',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.grey.shade600,
+                          trailing: PopupMenuButton<String>(
+                            onSelected: (v) async {
+                              if (v == 'add_area') await _createArea(type);
+                              if (v == 'rename') await _renameType(type);
+                              if (v == 'delete') await _deleteType(type);
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'add_area',
+                                child: Text('Nova área'),
+                              ),
+                              PopupMenuItem(
+                                value: 'rename',
+                                child: Text('Renomear'),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Eliminar'),
+                              ),
+                            ],
+                          ),
+                          children: [
+                            StreamBuilder<List<ProjectArea>>(
+                              stream:
+                                  _service.watchProjectAreas(typeId: type.id),
+                              builder: (context, areaSnap) {
+                                final areas = areaSnap.data ?? [];
+                                return Column(
+                                  children: [
+                                    if (areas.isEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          16,
+                                          0,
+                                          16,
+                                          8,
+                                        ),
+                                        child: Text(
+                                          'Sem áreas. Usa o menu ⋮ → Nova área.',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ),
+                                    ...areas.map(
+                                      (area) => _AreaTile(
+                                        type: type,
+                                        area: area,
+                                        service: _service,
+                                        onCreateSubtype: () =>
+                                            _createSubtype(type, area),
+                                        onRenameArea: () =>
+                                            _renameArea(area),
+                                        onDeleteArea: () =>
+                                            _deleteArea(area),
+                                        onRenameSubtype: _renameSubtype,
+                                        onDeleteSubtype: _deleteSubtype,
                                       ),
                                     ),
-                                  ),
-                                ...areas.map(
-                                  (area) => _AreaTile(
-                                    type: type,
-                                    area: area,
-                                    service: _service,
-                                    onCreateSubtype: () =>
-                                        _createSubtype(type, area),
-                                    onRenameArea: () => _renameArea(area),
-                                    onDeleteArea: () => _deleteArea(area),
-                                    onRenameSubtype: _renameSubtype,
-                                    onDeleteSubtype: _deleteSubtype,
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      24,
-                                      0,
-                                      16,
-                                      12,
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          24,
+                                          0,
+                                          16,
+                                          12,
+                                        ),
+                                        child: TextButton.icon(
+                                          onPressed: () => _createArea(type),
+                                          icon: const Icon(Icons.add, size: 18),
+                                          label: const Text('Nova área'),
+                                        ),
+                                      ),
                                     ),
-                                    child: TextButton.icon(
-                                      onPressed: () => _createArea(type),
-                                      icon: const Icon(Icons.add, size: 18),
-                                      label: const Text('Nova área'),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
+                      ),
+                  ],
+                ),
               );
             },
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
