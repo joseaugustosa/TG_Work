@@ -2165,13 +2165,27 @@ class FirestoreService {
 
     await safeScan('user_ide_session_logs', () async {
       final ideSnap =
-          await _db.collection('user_ide_session_logs').limit(500).get();
+          await _db.collection('user_ide_session_logs').limit(2500).get();
       for (final d in ideSnap.docs) {
-        add(d.data()['userId'] as String?);
+        final m = d.data();
+        add(
+          m['userId'] as String?,
+          name: m['userDisplayName'] as String?,
+          email: m['userEmail'] as String?,
+        );
+      }
+    });
+
+    await safeScan('user_billing_settings', () async {
+      final snap =
+          await _db.collection('user_billing_settings').limit(500).get();
+      for (final d in snap.docs) {
+        add(d.id);
       }
     });
 
     var created = 0;
+    var updated = 0;
     final now = DateTime.now();
     for (final entry in discovered.entries) {
       final ref = _appUsers.doc(entry.key);
@@ -2183,12 +2197,14 @@ class FirestoreService {
             entry.value.name.isNotEmpty) {
           patch['displayName'] = entry.value.name;
         }
+        // Sempre preencher email em falta a partir do IDE / atividade.
         if ((data['email'] as String?)?.trim().isNotEmpty != true &&
             entry.value.email.isNotEmpty) {
           patch['email'] = entry.value.email;
         }
         if (patch.isNotEmpty) {
           await ref.set(patch, SetOptions(merge: true));
+          updated++;
         }
         continue;
       }
@@ -2206,7 +2222,7 @@ class FirestoreService {
       );
       created++;
     }
-    return created;
+    return created + updated;
   }
 
   /// Garante perfil em `app_users`. O primeiro utilizador torna-se admin.

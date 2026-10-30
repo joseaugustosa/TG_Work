@@ -40,8 +40,9 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
       final n = await _fs.syncUsersFromFirestoreActivity();
       _toast(
         n == 0
-            ? 'Nenhum utilizador novo encontrado no Firestore.'
-            : 'Importados $n utilizador(es) já presentes no Firebase.',
+            ? 'Nada a sincronizar (emails e contas já estavam actualizados).'
+            : 'Sincronizados $n utilizador(es): contas novas e emails em falta '
+                '(ex.: sessões IDE).',
       );
     } catch (e) {
       _toast('$e', error: true);
@@ -177,13 +178,6 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
     final passCtrl = TextEditingController();
     var obscure = true;
     var role = user.role;
-    var accessProjects = user.accessProjects;
-    var accessTree = user.accessTree;
-    var accessIdeAgenda = user.accessIdeAgenda;
-    var accessSettings = user.accessSettings;
-    var accessViewTimeExpense = user.accessViewTimeExpense;
-    var accessAllProjects = user.accessAllProjects;
-    var allowedIds = List<String>.from(user.allowedProjectIds);
 
     final ok = await showDialog<bool>(
       context: context,
@@ -193,7 +187,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
             return AlertDialog(
               title: const Text('Editar utilizador'),
               content: SizedBox(
-                width: 460,
+                width: 420,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -260,9 +254,94 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    final name = nameCtrl.text.trim();
+    final email = emailCtrl.text.trim();
+    final pass = passCtrl.text;
+    nameCtrl.dispose();
+    emailCtrl.dispose();
+    passCtrl.dispose();
+    if (ok != true) return;
+    if (email.isEmpty) {
+      _toast('O email é obrigatório.', error: true);
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      final note = await _adminUsers.updateUser(
+        user: user,
+        displayName: name,
+        email: email,
+        newPassword: pass.isEmpty ? null : pass,
+        role: role,
+      );
+      _toast(
+        note == null || note.isEmpty
+            ? 'Utilizador atualizado.'
+            : 'Utilizador atualizado. $note',
+      );
+    } catch (e) {
+      _toast('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _editAccess(AppUser user) async {
+    var accessProjects = user.accessProjects;
+    var accessTree = user.accessTree;
+    var accessIdeAgenda = user.accessIdeAgenda;
+    var accessSettings = user.accessSettings;
+    var accessViewTimeExpense = user.accessViewTimeExpense;
+    var accessAllProjects = user.accessAllProjects;
+    var allowedIds = List<String>.from(user.allowedProjectIds);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: Text('Acessos · ${user.label}'),
+              content: SizedBox(
+                width: 460,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        user.email.isEmpty
+                            ? 'UID: ${user.id}'
+                            : user.email,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       const Text(
-                        'Acesso às áreas',
+                        'Áreas da app',
                         style: TextStyle(fontWeight: FontWeight.w700),
                       ),
                       SwitchListTile(
@@ -339,7 +418,10 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                                         setLocal(() {
                                           if (v == true) {
                                             if (!allowedIds.contains(p.id)) {
-                                              allowedIds = [...allowedIds, p.id];
+                                              allowedIds = [
+                                                ...allowedIds,
+                                                p.id,
+                                              ];
                                             }
                                           } else {
                                             allowedIds = allowedIds
@@ -354,8 +436,6 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                             );
                           },
                         ),
-                      const SizedBox(height: 12),
-                      UserHoursPanel(user: user, service: _fs),
                     ],
                   ),
                 ),
@@ -367,7 +447,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                 ),
                 FilledButton(
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Guardar'),
+                  child: const Text('Guardar acessos'),
                 ),
               ],
             );
@@ -376,27 +456,10 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
       },
     );
 
-    final name = nameCtrl.text.trim();
-    final email = emailCtrl.text.trim();
-    final pass = passCtrl.text;
-    nameCtrl.dispose();
-    emailCtrl.dispose();
-    passCtrl.dispose();
     if (ok != true) return;
-    if (email.isEmpty) {
-      _toast('O email é obrigatório.', error: true);
-      return;
-    }
 
     setState(() => _busy = true);
     try {
-      final note = await _adminUsers.updateUser(
-        user: user,
-        displayName: name,
-        email: email,
-        newPassword: pass.isEmpty ? null : pass,
-        role: role,
-      );
       await _fs.updateAppUserAccess(
         user.copyWith(
           accessProjects: accessProjects,
@@ -408,11 +471,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
           allowedProjectIds: allowedIds,
         ),
       );
-      _toast(
-        note == null || note.isEmpty
-            ? 'Utilizador atualizado.'
-            : 'Utilizador atualizado. $note',
-      );
+      _toast('Acessos atualizados.');
     } catch (e) {
       _toast('$e', error: true);
     } finally {
@@ -555,9 +614,9 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                         const SizedBox(height: 6),
                         Text(
                           isAdmin
-                              ? 'Cria utilizadores, define acesso a Projetos / Árvore / '
-                                  'Agenda IDE / Definições e a projetos concretos. '
-                                  '«Sincronizar» importa contas já usadas no Firestore.'
+                              ? 'Cria utilizadores; «Editar» muda nome/email/passe/papel; '
+                                  '«Acessos» controla áreas e projetos. '
+                                  '«Sincronizar» importa contas e emails (ex.: sessões IDE).'
                               : 'Ainda não há administrador. Torna-te admin para gerir contas.',
                           style: TextStyle(
                             fontSize: 12.5,
@@ -639,6 +698,7 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
                                       service: _fs,
                                       isSelf: u.id == _uid,
                                       onEdit: () => _editUser(u),
+                                      onAccess: () => _editAccess(u),
                                       onBlock: () => _toggleBlock(u),
                                       onMakeAdmin: () =>
                                           _setRole(u, AppUserRole.admin),
@@ -675,6 +735,7 @@ class _UserTile extends StatelessWidget {
     required this.service,
     required this.isSelf,
     required this.onEdit,
+    required this.onAccess,
     required this.onBlock,
     required this.onMakeAdmin,
     required this.onMakeUser,
@@ -685,6 +746,7 @@ class _UserTile extends StatelessWidget {
   final FirestoreService service;
   final bool isSelf;
   final VoidCallback onEdit;
+  final VoidCallback onAccess;
   final VoidCallback onBlock;
   final VoidCallback onMakeAdmin;
   final VoidCallback onMakeUser;
@@ -746,6 +808,8 @@ class _UserTile extends StatelessWidget {
               switch (v) {
                 case 'edit':
                   onEdit();
+                case 'access':
+                  onAccess();
                 case 'block':
                   onBlock();
                 case 'admin':
@@ -759,7 +823,11 @@ class _UserTile extends StatelessWidget {
             itemBuilder: (_) => [
               const PopupMenuItem(
                 value: 'edit',
-                child: Text('Editar / permissões'),
+                child: Text('Editar (nome, email, passe, papel)'),
+              ),
+              const PopupMenuItem(
+                value: 'access',
+                child: Text('Acessos'),
               ),
               if (!isSelf)
                 PopupMenuItem(
