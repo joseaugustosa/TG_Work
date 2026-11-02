@@ -2328,6 +2328,75 @@ class FirestoreService {
     );
   }
 
+  /// Actualiza o nome em `app_users` e nos projetos (responsável / intervenientes).
+  Future<void> updateAppUserDisplayNameAndPropagate({
+    required String uid,
+    required String displayName,
+  }) async {
+    final id = uid.trim();
+    final name = displayName.trim();
+    if (id.isEmpty || name.isEmpty) return;
+
+    await _appUsers.doc(id).set(
+      {'displayName': name},
+      SetOptions(merge: true),
+    );
+
+    Future<void> patchSnap(QuerySnapshot<Map<String, dynamic>> snap) async {
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final patch = <String, dynamic>{};
+        if ((data['responsibleUserId'] as String?)?.trim() == id) {
+          patch['responsibleUserName'] = name;
+        }
+        final ids = data['intervenientUserIds'];
+        final names = data['intervenientUserNames'];
+        if (ids is List) {
+          final idList = ids.map((e) => e?.toString() ?? '').toList();
+          final nameList = names is List
+              ? names.map((e) => e?.toString() ?? '').toList()
+              : List<String>.filled(idList.length, '');
+          while (nameList.length < idList.length) {
+            nameList.add('');
+          }
+          var changed = false;
+          for (var i = 0; i < idList.length; i++) {
+            if (idList[i].trim() == id && nameList[i] != name) {
+              nameList[i] = name;
+              changed = true;
+            }
+          }
+          if (changed) {
+            patch['intervenientUserNames'] = nameList;
+          }
+        }
+        if (patch.isNotEmpty) {
+          await doc.reference.set(patch, SetOptions(merge: true));
+        }
+      }
+    }
+
+    try {
+      final asResp = await _db
+          .collection('projects')
+          .where('responsibleUserId', isEqualTo: id)
+          .get();
+      await patchSnap(asResp);
+    } catch (e, st) {
+      debugPrint('TG_Work: propagar nome (responsável): $e\n$st');
+    }
+
+    try {
+      final asInt = await _db
+          .collection('projects')
+          .where('intervenientUserIds', arrayContains: id)
+          .get();
+      await patchSnap(asInt);
+    } catch (e, st) {
+      debugPrint('TG_Work: propagar nome (interveniente): $e\n$st');
+    }
+  }
+
   /// Sessões IDE concluídas de todos os utilizadores (admin — regras `isAdmin`).
   Stream<List<IdeSessionLog>> watchAllCompletedIdeSessionLogs({
     int limit = 4000,

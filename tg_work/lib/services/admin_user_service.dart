@@ -51,6 +51,14 @@ class AdminUserService {
       );
     }
 
+    Future<void> propagateName() async {
+      if (name.isEmpty) return;
+      await _fs.updateAppUserDisplayNameAndPropagate(
+        uid: user.id,
+        displayName: name,
+      );
+    }
+
     // 1) Cloud Function (plano Blaze)
     try {
       final callable =
@@ -62,6 +70,7 @@ class AdminUserService {
         if (pass.isNotEmpty) 'password': pass,
         if (role != null) 'role': role.key,
       });
+      await propagateName();
       return null;
     } on FirebaseFunctionsException catch (e) {
       debugPrint('TG_Work: adminUpdateUser CF: ${e.code} ${e.message}');
@@ -85,6 +94,7 @@ class AdminUserService {
             role: role ?? user.role,
           ),
         );
+        await propagateName();
         return null;
       } catch (e) {
         debugPrint('TG_Work: Identity Toolkit admin: $e');
@@ -99,6 +109,7 @@ class AdminUserService {
           password: pass.isEmpty ? null : pass,
           role: role,
         );
+        await propagateName();
         return null;
       } catch (e) {
         debugPrint('TG_Work: script admin-update-user: $e');
@@ -113,6 +124,7 @@ class AdminUserService {
         role: role ?? user.role,
       ),
     );
+    await propagateName();
     if (pass.isNotEmpty) {
       try {
         await FirebaseAuth.instance.sendPasswordResetEmail(email: mail);
@@ -164,6 +176,12 @@ class AdminUserService {
         role: role ?? user.role,
       ),
     );
+    if (name.isNotEmpty) {
+      await _fs.updateAppUserDisplayNameAndPropagate(
+        uid: user.id,
+        displayName: name,
+      );
+    }
     return emailNote.isEmpty ? null : emailNote;
   }
 

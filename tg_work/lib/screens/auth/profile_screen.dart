@@ -55,6 +55,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _loading = true);
     try {
       await _auth.updateProfileDisplayName(name);
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (uid.isNotEmpty) {
+        await _fs.updateAppUserDisplayNameAndPropagate(
+          uid: uid,
+          displayName: name,
+        );
+      }
       if (mounted) {
         setState(() {
           _loading = false;

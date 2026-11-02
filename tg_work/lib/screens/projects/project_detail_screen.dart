@@ -11,6 +11,7 @@ import '../../utils/firestore_messages.dart';
 import '../../utils/ide_workspace_path_pick.dart';
 import '../../utils/windows_firestore_compat.dart';
 import '../../utils/user_display.dart';
+import '../../utils/app_user_labels.dart';
 import '../../widgets/status_badge.dart';
 import '../../models/journal_note.dart';
 import '../../widgets/entity_notes_section.dart';
@@ -607,25 +608,35 @@ class _InfoCard extends StatelessWidget {
                 ],
               ),
             ],
-            if (project.peopleLabel.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.groups_outlined, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: SelectableText(
-                      project.peopleLabel,
-                      style: TextStyle(
-                        color: Colors.grey[800],
-                        fontWeight: FontWeight.w500,
+            StreamBuilder<List<AppUser>>(
+              stream: FirestoreService().watchAppUsers(),
+              builder: (context, usersSnap) {
+                final label = project.peopleLabelResolved(
+                  appUserDisplayNamesById(usersSnap.data ?? const []),
+                );
+                if (label.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.groups_outlined,
+                          size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: SelectableText(
+                          label,
+                          style: TextStyle(
+                            color: Colors.grey[800],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
-            ],
+                );
+              },
+            ),
             if (project.description.isNotEmpty) ...[
               const SizedBox(height: 10),
               SelectableText(

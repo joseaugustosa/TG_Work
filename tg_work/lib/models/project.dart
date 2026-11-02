@@ -145,15 +145,39 @@ class Project {
     return parts.join(' · ');
   }
 
-  String get peopleLabel {
-    final parts = <String>[];
-    if (responsibleUserName.trim().isNotEmpty) {
-      parts.add('Resp.: ${responsibleUserName.trim()}');
+  String get peopleLabel => peopleLabelResolved(const {});
+
+  /// Nomes actualizados a partir de [namesByUserId] (ex.: `app_users`);
+  /// se faltar, usa o nome guardado no projeto.
+  String peopleLabelResolved(Map<String, String> namesByUserId) {
+    String resolve(String id, String stored) {
+      final live = (namesByUserId[id] ?? '').trim();
+      if (live.isNotEmpty) return live;
+      return stored.trim();
     }
-    final ints = intervenientUserNames
-        .map((n) => n.trim())
-        .where((n) => n.isNotEmpty)
-        .toList();
+
+    final parts = <String>[];
+    final respId = responsibleUserId.trim();
+    final respName = resolve(respId, responsibleUserName);
+    if (respName.isNotEmpty) {
+      parts.add('Resp.: $respName');
+    }
+    final ints = <String>[];
+    for (var i = 0; i < intervenientUserIds.length; i++) {
+      final id = intervenientUserIds[i].trim();
+      final stored = i < intervenientUserNames.length
+          ? intervenientUserNames[i]
+          : '';
+      final name = resolve(id, stored);
+      if (name.isNotEmpty) ints.add(name);
+    }
+    // Nomes guardados sem IDs (dados antigos).
+    if (ints.isEmpty) {
+      for (final n in intervenientUserNames) {
+        final t = n.trim();
+        if (t.isNotEmpty) ints.add(t);
+      }
+    }
     if (ints.isNotEmpty) {
       parts.add('Int.: ${ints.join(', ')}');
     }

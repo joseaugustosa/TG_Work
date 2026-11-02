@@ -13,6 +13,7 @@ import '../../utils/kanban_time_summary.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../models/app_user.dart';
+import '../../utils/app_user_labels.dart';
 import '../../widgets/project_classification_fields.dart';
 import '../../widgets/project_people_fields.dart';
 import '../../widgets/project_status_picker.dart';
@@ -168,6 +169,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     if (snapshot.hasError) {
                       return Center(child: Text('Erro: ${snapshot.error}'));
                     }
+                    return StreamBuilder<List<AppUser>>(
+                      stream: _service.watchAppUsers(),
+                      builder: (context, usersSnap) {
+                    final namesById =
+                        appUserDisplayNamesById(usersSnap.data ?? const []);
                     var allProjects = snapshot.data ?? [];
                     if (me == null) {
                       allProjects = [];
@@ -346,10 +352,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                         ),
                                       ),
                                     ],
-                                    if (project.peopleLabel.isNotEmpty) ...[
+                                    if (project
+                                        .peopleLabelResolved(namesById)
+                                        .isNotEmpty) ...[
                                       const SizedBox(height: 4),
                                       Text(
-                                        project.peopleLabel,
+                                        project.peopleLabelResolved(namesById),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -463,9 +471,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
-                                if (project.peopleLabel.isNotEmpty)
+                                if (project
+                                    .peopleLabelResolved(namesById)
+                                    .isNotEmpty)
                                   Text(
-                                    project.peopleLabel,
+                                    project.peopleLabelResolved(namesById),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey[700],
@@ -553,6 +563,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                             ),
                           ),
                         );
+                      },
+                    );
                       },
                     );
                   },
