@@ -116,7 +116,7 @@ class AdminUserService {
       }
     }
 
-    // 4) Só Firestore + email de reposição
+    // 4) Só Firestore (+ email de reposição se pediu password)
     await _fs.writeAppUserProfile(
       user.copyWith(
         displayName: name,
@@ -126,22 +126,28 @@ class AdminUserService {
     );
     await propagateName();
     if (pass.isNotEmpty) {
+      var resetSent = false;
       try {
         await FirebaseAuth.instance.sendPasswordResetEmail(email: mail);
-      } catch (_) {}
-      throw StateError(
-        'Nome/email guardados na app. Para alterar a palavra-passe Auth de '
-        'outro utilizador no PC: corre «gcloud auth application-default login» '
-        'e volta a guardar (ou ativa Blaze + Cloud Function). '
-        'Foi enviado um email de reposição para $mail.',
+        resetSent = true;
+      } catch (e) {
+        debugPrint('TG_Work: sendPasswordResetEmail: $e');
+      }
+      if (resetSent) {
+        return 'Nome/email guardados. Não dá para definir a password Auth '
+            'directamente neste PC (falta Admin SDK / Blaze). '
+            'Foi enviado um email de reposição para $mail — o utilizador '
+            'abre o link e escolhe a nova password.';
+      }
+      throw Exception(
+        'Nome/email guardados, mas a password Auth não foi alterada. '
+        'Instala o Google Cloud SDK e corre «gcloud auth application-default login», '
+        'ou pede ao utilizador para usar «Esqueci a password» no login.',
       );
     }
     if (mail != user.email.trim().toLowerCase()) {
-      throw StateError(
-        'Email atualizado na app. O email de login Auth ainda é o antigo — '
-        'no PC corre «gcloud auth application-default login» e volta a guardar, '
-        'ou ativa o plano Blaze e a Cloud Function adminUpdateUser.',
-      );
+      return 'Email actualizado na app. O email de login Auth pode ainda ser '
+          'o antigo até haver Admin SDK neste PC (gcloud ADC ou Blaze).';
     }
     return null;
   }
@@ -216,22 +222,60 @@ class AdminUserService {
   }
 
   Future<String> _gcloudAccessToken() async {
-    final result = await Process.run(
-      'gcloud',
-      ['auth', 'application-default', 'print-access-token'],
-      runInShell: true,
-    );
-    if (result.exitCode != 0) {
-      throw StateError(
-        'gcloud ADC em falta. Corre: gcloud auth application-default login\n'
-        '${result.stderr}',
+    // 1) gcloud ADC (se instalado)
+    try {
+      final result = await Process.run(
+        'gcloud',
+        ['auth', 'application-default', 'print-access-token'],
+        runInShell: true,
       );
+      if (result.exitCode == 0) {
+        final token = result.stdout.toString().trim();
+        if (token.isNotEmpty) return token;
+      }
+    } catch (e) {
+      debugPrint('TG_Work: gcloud ADC: $e');
     }
-    final token = result.stdout.toString().trim();
-    if (token.isEmpty) {
-      throw StateError('Token gcloud vazio.');
+
+    // 2) Token do «firebase login» (configstore) — funciona neste PC sem gcloud
+    final fromFirebaseCli = await _firebaseToolsAccessToken();
+    if (fromFirebaseCli != null && fromFirebaseCli.isNotEmpty) {
+      return fromFirebaseCli;
     }
-    return token;
+
+    throw Exception(
+      'Sem credenciais admin. No PC: «firebase login» (já usado neste repo) '
+      'ou «gcloud auth application-default login».',
+    );
+  }
+
+  /// Lê o access_token do Firebase CLI (`firebase login`).
+  Future<String?> _firebaseToolsAccessToken() async {
+    if (kIsWeb) return null;
+    final home = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        '';
+    final candidates = <String>[
+      if (home.isNotEmpty)
+        '$home\\.config\\configstore\\firebase-tools.json',
+      if (home.isNotEmpty)
+        '$home\\AppData\\Roaming\\configstore\\firebase-tools.json',
+    ];
+    for (final path in candidates) {
+      try {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final tokens = map['tokens'];
+        if (tokens is Map) {
+          final access = tokens['access_token']?.toString().trim() ?? '';
+          if (access.isNotEmpty) return access;
+        }
+      } catch (e) {
+        debugPrint('TG_Work: ler firebase-tools.json: $e');
+      }
+    }
+    return null;
   }
 
   Future<void> _updateViaWindowsAdminScript({
