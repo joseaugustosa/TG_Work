@@ -1,21 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Tipo de projeto criado pelo utilizador (`project_types/{id}`).
-class ProjectType {
+/// Empresa / organização para classificar projetos (`project_companies/{id}`).
+class ProjectCompany {
   final String id;
   final String name;
   final String createdBy;
   final DateTime createdAt;
 
-  const ProjectType({
+  const ProjectCompany({
     required this.id,
     required this.name,
     this.createdBy = '',
     required this.createdAt,
   });
 
-  factory ProjectType.fromMap(Map<String, dynamic> map, String id) {
-    return ProjectType(
+  factory ProjectCompany.fromMap(Map<String, dynamic> map, String id) {
+    return ProjectCompany(
       id: id,
       name: (map['name'] as String?)?.trim() ?? '',
       createdBy: (map['createdBy'] as String?) ?? '',
@@ -24,6 +24,40 @@ class ProjectType {
   }
 
   Map<String, dynamic> toCreateMap() => {
+        'name': name.trim(),
+        'createdBy': createdBy,
+        'createdAt': Timestamp.fromDate(createdAt),
+      };
+}
+
+/// Tipo de projeto criado pelo utilizador (`project_types/{id}`).
+class ProjectType {
+  final String id;
+  final String companyId;
+  final String name;
+  final String createdBy;
+  final DateTime createdAt;
+
+  const ProjectType({
+    required this.id,
+    this.companyId = '',
+    required this.name,
+    this.createdBy = '',
+    required this.createdAt,
+  });
+
+  factory ProjectType.fromMap(Map<String, dynamic> map, String id) {
+    return ProjectType(
+      id: id,
+      companyId: (map['companyId'] as String?)?.trim() ?? '',
+      name: (map['name'] as String?)?.trim() ?? '',
+      createdBy: (map['createdBy'] as String?) ?? '',
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toCreateMap() => {
+        if (companyId.trim().isNotEmpty) 'companyId': companyId.trim(),
         'name': name.trim(),
         'createdBy': createdBy,
         'createdAt': Timestamp.fromDate(createdAt),

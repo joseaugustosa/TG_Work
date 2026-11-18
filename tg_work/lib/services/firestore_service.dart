@@ -142,6 +142,16 @@ class FirestoreService {
     }
 
     patch(
+      'projectCompanyId',
+      oldProject.projectCompanyId.trim(),
+      updated.projectCompanyId.trim(),
+    );
+    patch(
+      'projectCompanyName',
+      oldProject.projectCompanyName.trim(),
+      updated.projectCompanyName.trim(),
+    );
+    patch(
       'projectTypeId',
       oldProject.projectTypeId.trim(),
       updated.projectTypeId.trim(),
@@ -685,10 +695,29 @@ class FirestoreService {
     });
   }
 
-  // ─── Tipos / subtipos de projeto (criados pelo utilizador) ───────────────
+  // ─── Empresa / Tipo / Área / Subtipo (criados pelo utilizador) ───────────
 
-  Stream<List<ProjectType>> watchProjectTypes() {
-    return _db.collection('project_types').snapshots().map((snap) {
+  static const defaultCompanyName = 'Geral';
+
+  Stream<List<ProjectCompany>> watchProjectCompanies() {
+    return _db.collection('project_companies').snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => ProjectCompany.fromMap(d.data(), d.id))
+          .toList();
+      list.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return list;
+    });
+  }
+
+  Stream<List<ProjectType>> watchProjectTypes({String? companyId}) {
+    Query<Map<String, dynamic>> q = _db.collection('project_types');
+    final cid = companyId?.trim() ?? '';
+    if (cid.isNotEmpty) {
+      q = q.where('companyId', isEqualTo: cid);
+    }
+    return q.snapshots().map((snap) {
       final list =
           snap.docs.map((d) => ProjectType.fromMap(d.data(), d.id)).toList();
       list.sort(
@@ -696,6 +725,69 @@ class FirestoreService {
       );
       return list;
     });
+  }
+
+  /// Garante empresa «Geral» e associa tipos sem `companyId`.
+  Future<String> ensureDefaultCompany({required String userId}) async {
+    final companies = await _db.collection('project_companies').get();
+    String? geralId;
+    for (final d in companies.docs) {
+      final name = (d.data()['name'] as String?)?.trim() ?? '';
+      if (name.toLowerCase() == defaultCompanyName.toLowerCase()) {
+        geralId = d.id;
+        break;
+      }
+    }
+    geralId ??= await addProjectCompany(
+      name: defaultCompanyName,
+      userId: userId,
+    );
+
+    final types = await _db.collection('project_types').get();
+    for (final d in types.docs) {
+      final cid = (d.data()['companyId'] as String?)?.trim() ?? '';
+      if (cid.isEmpty) {
+        await d.reference.set({'companyId': geralId}, SetOptions(merge: true));
+      }
+    }
+    return geralId;
+  }
+
+  Future<String> addProjectCompany({
+    required String name,
+    required String userId,
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty) throw ArgumentError('name');
+    final ref = await _db.collection('project_companies').add(
+          ProjectCompany(
+            id: '',
+            name: n,
+            createdBy: userId,
+            createdAt: DateTime.now(),
+          ).toCreateMap(),
+        );
+    return ref.id;
+  }
+
+  Future<void> renameProjectCompany(String companyId, String name) async {
+    final id = companyId.trim();
+    final n = name.trim();
+    if (id.isEmpty || n.isEmpty) return;
+    await _db.collection('project_companies').doc(id).update({'name': n});
+  }
+
+  Future<void> deleteProjectCompany(String companyId) async {
+    final cid = companyId.trim();
+    if (cid.isEmpty) return;
+    final types = await _db
+        .collection('project_types')
+        .where('companyId', isEqualTo: cid)
+        .get();
+    for (final t in types.docs) {
+      await deleteProjectType(t.id);
+    }
+    await _db.collection('project_companies').doc(cid).delete();
   }
 
   Stream<List<ProjectArea>> watchProjectAreas({String? typeId}) {
@@ -740,12 +832,18 @@ class FirestoreService {
   Future<String> addProjectType({
     required String name,
     required String userId,
+    String companyId = '',
   }) async {
     final n = name.trim();
     if (n.isEmpty) throw ArgumentError('name');
+    var cid = companyId.trim();
+    if (cid.isEmpty) {
+      cid = await ensureDefaultCompany(userId: userId);
+    }
     final ref = await _db.collection('project_types').add(
           ProjectType(
             id: '',
+            companyId: cid,
             name: n,
             createdBy: userId,
             createdAt: DateTime.now(),

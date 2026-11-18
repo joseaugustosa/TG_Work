@@ -19,6 +19,7 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
   late final FirestoreService _service;
   late final Stream<List<Project>> _projectsStream;
   String? _filterProjectId;
+  String? _filterCompanyId;
   String? _filterTypeId;
   String? _filterAreaId;
   String? _filterSubtypeId;
@@ -75,6 +76,7 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
 
         final byClass = filterProjectsByClassification(
           allProjects,
+          companyId: _filterCompanyId,
           typeId: _filterTypeId,
           areaId: _filterAreaId,
           subtypeId: _filterSubtypeId,
@@ -116,9 +118,17 @@ class _TreeTabScreenState extends State<TreeTabScreen> {
                   const SizedBox(height: 12),
                   ProjectClassificationFilters(
                     service: _service,
+                    companyId: _filterCompanyId,
                     typeId: _filterTypeId,
                     areaId: _filterAreaId,
                     subtypeId: _filterSubtypeId,
+                    onCompanyChanged: (v) => setState(() {
+                      _filterCompanyId = v;
+                      _filterTypeId = null;
+                      _filterAreaId = null;
+                      _filterSubtypeId = null;
+                      _filterProjectId = null;
+                    }),
                     onTypeChanged: (v) => setState(() {
                       _filterTypeId = v;
                       _filterAreaId = null;

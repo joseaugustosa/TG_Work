@@ -69,6 +69,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
         TextEditingController(text: project.ideCountingFolderFsPath);
     final recordingHolder = NoteRecordingHolder(originalUrl: project.descriptionRecordingUrl);
     ProjectStatus status = project.status;
+    String companyId = project.projectCompanyId;
+    String companyName = project.projectCompanyName;
     String typeId = project.projectTypeId;
     String typeName = project.projectTypeName;
     String areaId = project.projectAreaId;
@@ -111,9 +113,20 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   const SizedBox(height: 12),
                   ProjectClassificationFields(
                     service: _service,
+                    companyId: companyId.isEmpty ? null : companyId,
                     typeId: typeId.isEmpty ? null : typeId,
                     areaId: areaId.isEmpty ? null : areaId,
                     subtypeId: subtypeId.isEmpty ? null : subtypeId,
+                    onCompanyChanged: (c) => setState(() {
+                      companyId = c?.id ?? '';
+                      companyName = c?.name ?? '';
+                      typeId = '';
+                      typeName = '';
+                      areaId = '';
+                      areaName = '';
+                      subtypeId = '';
+                      subtypeName = '';
+                    }),
                     onTypeChanged: (t) => setState(() {
                       typeId = t?.id ?? '';
                       typeName = t?.name ?? '';
@@ -250,6 +263,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                     descriptionRecordingUrl: audioUrl,
                     status: status,
                     ideCountingFolderFsPath: idePathController.text.trim(),
+                    projectCompanyId: companyId,
+                    projectCompanyName: companyName,
                     projectTypeId: typeId,
                     projectTypeName: typeName,
                     projectAreaId: areaId,

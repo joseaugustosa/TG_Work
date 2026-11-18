@@ -31,6 +31,7 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _kanban = false;
+  String? _filterCompanyId;
   String? _filterTypeId;
   String? _filterAreaId;
   String? _filterSubtypeId;
@@ -93,9 +94,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   children: [
                     ProjectClassificationFilters(
                       service: _service,
+                      companyId: _filterCompanyId,
                       typeId: _filterTypeId,
                       areaId: _filterAreaId,
                       subtypeId: _filterSubtypeId,
+                      onCompanyChanged: (v) => setState(() {
+                        _filterCompanyId = v;
+                        _filterTypeId = null;
+                        _filterAreaId = null;
+                        _filterSubtypeId = null;
+                      }),
                       onTypeChanged: (v) => setState(() {
                         _filterTypeId = v;
                         _filterAreaId = null;
@@ -184,6 +192,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     }
                     final projects = filterProjectsByClassification(
                       allProjects,
+                      companyId: _filterCompanyId,
                       typeId: _filterTypeId,
                       areaId: _filterAreaId,
                       subtypeId: _filterSubtypeId,
@@ -207,7 +216,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     if (projects.isEmpty) {
                       return Center(
                         child: Text(
-                          'Nenhum projeto com este tipo / subtipo.',
+                          'Nenhum projeto com esta classificação.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey[700], fontSize: 15),
                         ),
@@ -603,6 +612,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         TextEditingController(text: project?.ideCountingFolderFsPath ?? '');
     final recordingHolder = NoteRecordingHolder(originalUrl: project?.descriptionRecordingUrl);
     ProjectStatus status = project?.status ?? ProjectStatus.exequivel;
+    String companyId = project?.projectCompanyId ?? '';
+    String companyName = project?.projectCompanyName ?? '';
     String typeId = project?.projectTypeId ?? '';
     String typeName = project?.projectTypeName ?? '';
     String areaId = project?.projectAreaId ?? '';
@@ -643,9 +654,20 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 const SizedBox(height: 12),
                 ProjectClassificationFields(
                   service: service,
+                  companyId: companyId.isEmpty ? null : companyId,
                   typeId: typeId.isEmpty ? null : typeId,
                   areaId: areaId.isEmpty ? null : areaId,
                   subtypeId: subtypeId.isEmpty ? null : subtypeId,
+                  onCompanyChanged: (c) => setState(() {
+                    companyId = c?.id ?? '';
+                    companyName = c?.name ?? '';
+                    typeId = '';
+                    typeName = '';
+                    areaId = '';
+                    areaName = '';
+                    subtypeId = '';
+                    subtypeName = '';
+                  }),
                   onTypeChanged: (t) => setState(() {
                     typeId = t?.id ?? '';
                     typeName = t?.name ?? '';
@@ -776,6 +798,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   createdBy: project?.createdBy ?? userId,
                   createdByName: project?.createdByName ?? userName,
                   createdAt: project?.createdAt ?? DateTime.now(),
+                  projectCompanyId: companyId,
+                  projectCompanyName: companyName,
                   projectTypeId: typeId,
                   projectTypeName: typeName,
                   projectAreaId: areaId,

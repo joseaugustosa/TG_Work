@@ -73,6 +73,12 @@ class Project {
   /// Pasta (ou `.code-workspace`) no PC onde abres este projeto para a extensão IDE contabilizar sessão por abrir/fecho.
   final String ideCountingFolderFsPath;
 
+  /// ID da empresa (`project_companies`).
+  final String projectCompanyId;
+
+  /// Nome da empresa (cópia para listagens).
+  final String projectCompanyName;
+
   /// ID do tipo criado pelo utilizador (`project_types`).
   final String projectTypeId;
 
@@ -122,6 +128,8 @@ class Project {
     this.updatedByName,
     this.updatedAt,
     this.ideCountingFolderFsPath = '',
+    this.projectCompanyId = '',
+    this.projectCompanyName = '',
     this.projectTypeId = '',
     this.projectTypeName = '',
     this.projectAreaId = '',
@@ -138,6 +146,7 @@ class Project {
 
   String get classificationLabel {
     final parts = <String>[
+      projectCompanyName.trim(),
       projectTypeName.trim(),
       projectAreaName.trim(),
       projectSubtypeName.trim(),
@@ -198,6 +207,8 @@ class Project {
     String? updatedByName,
     DateTime? updatedAt,
     String? ideCountingFolderFsPath,
+    String? projectCompanyId,
+    String? projectCompanyName,
     String? projectTypeId,
     String? projectTypeName,
     String? projectAreaId,
@@ -228,6 +239,8 @@ class Project {
       updatedAt: updatedAt ?? this.updatedAt,
       ideCountingFolderFsPath:
           ideCountingFolderFsPath ?? this.ideCountingFolderFsPath,
+      projectCompanyId: projectCompanyId ?? this.projectCompanyId,
+      projectCompanyName: projectCompanyName ?? this.projectCompanyName,
       projectTypeId: projectTypeId ?? this.projectTypeId,
       projectTypeName: projectTypeName ?? this.projectTypeName,
       projectAreaId: projectAreaId ?? this.projectAreaId,
@@ -249,6 +262,8 @@ class Project {
     final ide =
         rawIde is String ? rawIde.trim() : (rawIde is num ? '$rawIde' : '').trim();
     // Compat: campos antigos `projectType` / `projectSubtype` como nomes.
+    final companyId = (map['projectCompanyId'] as String?)?.trim() ?? '';
+    final companyName = (map['projectCompanyName'] as String?)?.trim() ?? '';
     final typeId = (map['projectTypeId'] as String?)?.trim() ?? '';
     final typeName = (map['projectTypeName'] as String?)?.trim().isNotEmpty == true
         ? (map['projectTypeName'] as String).trim()
@@ -281,6 +296,8 @@ class Project {
       updatedByName: map['updatedByName'],
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
       ideCountingFolderFsPath: ide,
+      projectCompanyId: companyId,
+      projectCompanyName: companyName,
       projectTypeId: typeId,
       projectTypeName: typeName,
       projectAreaId: areaId,
@@ -317,6 +334,10 @@ class Project {
       if (updatedAt != null) 'updatedAt': updatedAt,
       if (ideCountingFolderFsPath.trim().isNotEmpty)
         'ideCountingFolderFsPath': ideCountingFolderFsPath.trim(),
+      if (projectCompanyId.trim().isNotEmpty)
+        'projectCompanyId': projectCompanyId.trim(),
+      if (projectCompanyName.trim().isNotEmpty)
+        'projectCompanyName': projectCompanyName.trim(),
       if (projectTypeId.trim().isNotEmpty) 'projectTypeId': projectTypeId.trim(),
       if (projectTypeName.trim().isNotEmpty)
         'projectTypeName': projectTypeName.trim(),

@@ -104,6 +104,10 @@ service cloud.firestore {
       allow read, write: if isActiveUser();
     }
 
+    match /project_companies/{docId} {
+      allow read, write: if isActiveUser();
+    }
+
     match /project_types/{docId} {
       allow read, write: if isActiveUser();
     }

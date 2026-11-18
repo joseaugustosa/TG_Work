@@ -16,6 +16,10 @@ String? summarizeProjectEdit(Project old, Project next) {
   if (old.ideCountingFolderFsPath.trim() != next.ideCountingFolderFsPath.trim()) {
     p.add('pasta IDE / tempo');
   }
+  if (old.projectCompanyId.trim() != next.projectCompanyId.trim() ||
+      old.projectCompanyName.trim() != next.projectCompanyName.trim()) {
+    p.add('empresa');
+  }
   if (old.projectTypeId.trim() != next.projectTypeId.trim() ||
       old.projectTypeName.trim() != next.projectTypeName.trim()) {
     p.add('tipo');
