@@ -432,12 +432,12 @@ class _ProjectDetailBody extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         if (!disableManualWorkTimerOnDesktop)
-          ProjectWorkTimerCard(
+          ProjectWorkTimerCard.forProject(
             projectId: project.id,
             projectName: project.name,
             userId: userId,
             service: service,
-            projectStatus: project.status,
+            canStartByStatus: project.status == ProjectStatus.emExecucao,
           ),
         const SizedBox(height: 16),
         ProjectIdeSessionsCard(

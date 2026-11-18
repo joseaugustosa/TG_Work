@@ -11,9 +11,12 @@ import '../../services/firestore_service.dart';
 import '../../services/note_recording_storage.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/user_display.dart';
+import '../../utils/windows_firestore_compat.dart';
+import '../../models/work_target_kind.dart';
 import '../../widgets/entity_notes_section.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/note_recording_playback.dart';
+import '../../widgets/project_work_timer_card.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
@@ -263,6 +266,19 @@ class _DevDetailBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _InfoCard(dev: dev, fmt: fmt),
+        const SizedBox(height: 16),
+        if (!disableManualWorkTimerOnDesktop)
+          ProjectWorkTimerCard(
+            kind: WorkTargetKind.development,
+            targetId: dev.id,
+            targetName: dev.name,
+            projectId: dev.projectId,
+            userId: userId,
+            service: service,
+            canStartByStatus: dev.status == DevelopmentStatus.emAndamento,
+            lockedStatusMessage:
+                'O relógio só conta quando o desenvolvimento está em «Em Andamento».',
+          ),
         const SizedBox(height: 20),
         EntityNotesSection(
           parent: JournalNoteParent.development,

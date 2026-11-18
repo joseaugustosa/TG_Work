@@ -12,6 +12,7 @@ import '../models/journal_note.dart';
 import '../models/status_change.dart';
 import '../models/user_billing_settings.dart';
 import '../models/active_work_clock.dart';
+import '../models/work_target_kind.dart';
 import '../models/ide_schedule_card.dart';
 import '../models/ide_schedule_lane.dart';
 import '../models/ide_session_log.dart';
@@ -1045,22 +1046,18 @@ class FirestoreService {
     await addIdeAgendaExcludedKeys(userId, keys);
   }
 
-  // ─── Tempo de trabalho (relógio por utilizador + total por projeto) ───────
+  // ─── Tempo de trabalho (relógio + totais por projeto/tema/desenvolvimento) ─
 
   Stream<ActiveWorkClock?> watchActiveWorkClock(String userId) {
     if (userId.isEmpty) return Stream.value(null);
     return _db.collection('user_work_clock').doc(userId).snapshots().map((s) {
       if (!s.exists) return null;
-      final d = s.data()!;
-      final pid = d['activeProjectId'] as String?;
-      final ts = d['segmentStartedAt'] as Timestamp?;
-      if (pid == null || pid.trim().isEmpty || ts == null) return null;
-      return ActiveWorkClock(projectId: pid.trim(), segmentStartedAt: ts.toDate());
+      return ActiveWorkClock.fromMap(s.data()!);
     });
   }
 
   /// Devolve um stream com o mapa {projectId -> totalSeconds} para todos os
-  /// projectos com tempo registado pelo relógio do Kanban.
+  /// projectos com tempo registado pelo relógio manual.
   Stream<Map<String, int>> watchAllProjectWorkedSeconds(String userId) {
     if (userId.isEmpty) return Stream.value({});
     return _db
@@ -1081,126 +1078,400 @@ class FirestoreService {
   }
 
   Stream<int> watchProjectWorkedSeconds(String userId, String projectId) {
-    if (userId.isEmpty || projectId.isEmpty) return Stream.value(0);
-    final modernRef =
-        _db.collection('user_project_work').doc('${userId}__wk__$projectId');
+    return watchEntityWorkedSeconds(
+      userId,
+      WorkTargetKind.project,
+      projectId,
+    );
+  }
 
-    /// Após migração, ouve só o doc sem `:` no ID.
-    return Stream.fromFuture(_prepareUserProjectWorkStream(_db, userId, projectId))
-        .asyncExpand((_) => modernRef.snapshots().map((s) {
-              final v = s.data()?['totalSeconds'];
-              if (v is int) return v;
-              if (v is num) return v.toInt();
-              return 0;
-            }));
+  Stream<int> watchEntityWorkedSeconds(
+    String userId,
+    WorkTargetKind kind,
+    String targetId,
+  ) {
+    if (userId.isEmpty || targetId.isEmpty) return Stream.value(0);
+    final col = workTotalsCollection(kind);
+    final docId = workTotalsDocId(userId, kind, targetId);
+    final ref = _db.collection(col).doc(docId);
+
+    if (kind == WorkTargetKind.project) {
+      return Stream.fromFuture(
+        _prepareUserProjectWorkStream(_db, userId, targetId),
+      ).asyncExpand((_) => ref.snapshots().map(_totalSecondsFromSnap));
+    }
+    return ref.snapshots().map(_totalSecondsFromSnap);
+  }
+
+  int _totalSecondsFromSnap(DocumentSnapshot<Map<String, dynamic>> s) {
+    final v = s.data()?['totalSeconds'];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
+  Stream<List<WorkTimeSegment>> watchWorkSegments({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    int limit = 20,
+  }) {
+    if (userId.isEmpty || targetId.isEmpty) {
+      return Stream.value(const []);
+    }
+    return _db
+        .collection('user_work_segments')
+        .where('userId', isEqualTo: userId)
+        .where('targetKind', isEqualTo: kind.key)
+        .where('targetId', isEqualTo: targetId)
+        .orderBy('endedAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => WorkTimeSegment.fromMap(d.data(), d.id))
+              .toList(),
+        )
+        .handleError((e, st) {
+          debugPrint('TG_Work: watchWorkSegments: $e\n$st');
+        });
+  }
+
+  Future<void> _prepareWorkTotals(
+    String userId,
+    WorkTargetKind kind,
+    String targetId,
+  ) async {
+    if (kind == WorkTargetKind.project) {
+      await _ensureUserProjectWorkIdMigratedOnce(_db, userId, targetId).catchError(
+        (e, st) => debugPrint('TG_Work: migrate antes do relógio: $e\n$st'),
+      );
+    }
   }
 
   void _transactionAddWorkedSeconds(
     Transaction tx,
     String userId,
+    WorkTargetKind kind,
+    String targetId,
     String projectId,
     int seconds,
   ) {
-    if (seconds <= 0) return;
-    final ref =
-        _db.collection('user_project_work').doc('${userId}__wk__$projectId');
-    tx.set(
-      ref,
-      {
-        'userId': userId,
-        'projectId': projectId,
-        'totalSeconds': FieldValue.increment(seconds),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    if (seconds <= 0 || targetId.isEmpty) return;
+    final ref = _db
+        .collection(workTotalsCollection(kind))
+        .doc(workTotalsDocId(userId, kind, targetId));
+    final data = <String, dynamic>{
+      'userId': userId,
+      'targetKind': kind.key,
+      'targetId': targetId,
+      'projectId': projectId,
+      'totalSeconds': FieldValue.increment(seconds),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (kind == WorkTargetKind.project) {
+      data['projectId'] = targetId;
+    }
+    tx.set(ref, data, SetOptions(merge: true));
   }
 
-  /// Inicia ou muda o projeto em que o tempo está a ser contado. Fecha o segmento anterior e acumula segundos.
-  Future<void> startProjectWorkTimer(String userId, String projectId) async {
-    if (userId.isEmpty || projectId.isEmpty) return;
-    await _ensureUserProjectWorkIdMigratedOnce(_db, userId, projectId).catchError(
-      (e, st) => debugPrint('TG_Work: migrate antes do relógio (start): $e\n$st'),
-    );
-    final clockRef = _db.collection('user_work_clock').doc(userId);
+  ActiveWorkClock? _clockFromData(Map<String, dynamic>? d) {
+    if (d == null) return null;
+    return ActiveWorkClock.fromMap(d);
+  }
+
+  Map<String, dynamic> _clockClearFields() => {
+        'activeProjectId': FieldValue.delete(),
+        'activeTargetId': FieldValue.delete(),
+        'activeTargetKind': FieldValue.delete(),
+        'segmentStartedAt': FieldValue.delete(),
+        'paused': FieldValue.delete(),
+        'taskDescription': FieldValue.delete(),
+      };
+
+  Map<String, dynamic> _clockRunningFields({
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required Timestamp now,
+    required String taskDescription,
+  }) =>
+      {
+        'activeTargetKind': kind.key,
+        'activeTargetId': targetId,
+        'activeProjectId': projectId,
+        'segmentStartedAt': now,
+        'paused': false,
+        'taskDescription': taskDescription,
+      };
+
+  void _txWriteSegment(
+    Transaction tx, {
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required String description,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required int durationSeconds,
+  }) {
+    if (durationSeconds <= 0) return;
+    final ref = _db.collection('user_work_segments').doc();
+    tx.set(ref, {
+      'userId': userId,
+      'targetKind': kind.key,
+      'targetId': targetId,
+      'projectId': projectId,
+      'description': description,
+      'startedAt': Timestamp.fromDate(startedAt),
+      'endedAt': Timestamp.fromDate(endedAt),
+      'durationSeconds': durationSeconds,
+    });
+  }
+
+  Future<void> _preloadClockMigrations(String userId) async {
     try {
-      final preSnap = await clockRef.get();
-      final dynamic preData = preSnap.data();
-      if (preData is Map<String, dynamic>) {
-        final prevEarly = (preData['activeProjectId'] as String?)?.trim();
-        if (prevEarly != null &&
-            prevEarly.isNotEmpty &&
-            prevEarly != projectId) {
-          await _ensureUserProjectWorkIdMigratedOnce(_db, userId, prevEarly).catchError(
-            (e, st) =>
-                debugPrint('TG_Work: migrate projeto anterior antes do relógio: $e\n$st'),
-          );
-        }
+      final pre = await _db.collection('user_work_clock').doc(userId).get();
+      final clock = _clockFromData(pre.data());
+      if (clock == null) return;
+      await _prepareWorkTotals(userId, clock.kind, clock.targetId);
+      if (clock.kind != WorkTargetKind.project && clock.projectId.isNotEmpty) {
+        await _prepareWorkTotals(
+          userId,
+          WorkTargetKind.project,
+          clock.projectId,
+        );
       }
     } catch (_) {}
+  }
+
+  /// Inicia ou muda o alvo em que o tempo está a ser contado.
+  Future<void> startWorkTimer({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    String taskDescription = '',
+  }) async {
+    if (userId.isEmpty || targetId.isEmpty || projectId.isEmpty) return;
+    await _prepareWorkTotals(userId, kind, targetId);
+    await _preloadClockMigrations(userId);
+
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+    final desc = taskDescription.trim();
+
     await _db.runTransaction((tx) async {
       final snap = await tx.get(clockRef);
       final now = Timestamp.now();
-      String? prevId;
-      Timestamp? prevStart;
-      if (snap.exists) {
-        final d = snap.data()!;
-        final a = d['activeProjectId'];
-        final t = d['segmentStartedAt'];
-        if (a is String && a.trim().isNotEmpty && t is Timestamp) {
-          prevId = a.trim();
-          prevStart = t;
-        }
-      }
-      if (prevId == projectId && prevStart != null) return;
+      final prev = _clockFromData(snap.data());
 
-      if (prevId != null && prevStart != null) {
-        final delta = now.toDate().difference(prevStart.toDate()).inSeconds;
-        _transactionAddWorkedSeconds(tx, userId, prevId, delta);
+      if (prev != null &&
+          prev.isActiveOn(kind, targetId) &&
+          !prev.paused &&
+          prev.segmentStartedAt != null) {
+        // Já a correr neste alvo — actualiza só a descrição se veio preenchida.
+        if (desc.isNotEmpty && desc != prev.taskDescription) {
+          tx.set(
+            clockRef,
+            {'taskDescription': desc},
+            SetOptions(merge: true),
+          );
+        }
+        return;
       }
+
+      if (prev != null && prev.isActiveOn(kind, targetId) && prev.paused) {
+        tx.set(
+          clockRef,
+          {
+            'segmentStartedAt': now,
+            'paused': false,
+            if (desc.isNotEmpty) 'taskDescription': desc,
+          },
+          SetOptions(merge: true),
+        );
+        return;
+      }
+
+      if (prev != null &&
+          !prev.paused &&
+          prev.segmentStartedAt != null) {
+        final delta = now
+            .toDate()
+            .difference(prev.segmentStartedAt!)
+            .inSeconds;
+        _transactionAddWorkedSeconds(
+          tx,
+          userId,
+          prev.kind,
+          prev.targetId,
+          prev.projectId,
+          delta,
+        );
+        _txWriteSegment(
+          tx,
+          userId: userId,
+          kind: prev.kind,
+          targetId: prev.targetId,
+          projectId: prev.projectId,
+          description: prev.taskDescription,
+          startedAt: prev.segmentStartedAt!,
+          endedAt: now.toDate(),
+          durationSeconds: delta,
+        );
+      }
+
+      tx.set(
+        clockRef,
+        _clockRunningFields(
+          kind: kind,
+          targetId: targetId,
+          projectId: projectId,
+          now: now,
+          taskDescription: desc.isNotEmpty
+              ? desc
+              : (prev?.isActiveOn(kind, targetId) == true
+                  ? prev!.taskDescription
+                  : ''),
+        ),
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  Future<void> startProjectWorkTimer(String userId, String projectId) =>
+      startWorkTimer(
+        userId: userId,
+        kind: WorkTargetKind.project,
+        targetId: projectId,
+        projectId: projectId,
+      );
+
+  /// Pausa: grava o segmento e mantém a sessão no mesmo alvo.
+  Future<void> pauseWorkTimer(String userId) async {
+    if (userId.isEmpty) return;
+    await _preloadClockMigrations(userId);
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      final prev = _clockFromData(snap.data());
+      if (prev == null || prev.paused || prev.segmentStartedAt == null) return;
+      final now = Timestamp.now();
+      final delta =
+          now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+      _transactionAddWorkedSeconds(
+        tx,
+        userId,
+        prev.kind,
+        prev.targetId,
+        prev.projectId,
+        delta,
+      );
+      _txWriteSegment(
+        tx,
+        userId: userId,
+        kind: prev.kind,
+        targetId: prev.targetId,
+        projectId: prev.projectId,
+        description: prev.taskDescription,
+        startedAt: prev.segmentStartedAt!,
+        endedAt: now.toDate(),
+        durationSeconds: delta,
+      );
       tx.set(
         clockRef,
         {
-          'activeProjectId': projectId,
+          'activeTargetKind': prev.kind.key,
+          'activeTargetId': prev.targetId,
+          'activeProjectId': prev.projectId,
+          'taskDescription': prev.taskDescription,
+          'paused': true,
+          'segmentStartedAt': FieldValue.delete(),
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  /// Retoma uma sessão em pausa.
+  Future<void> resumeWorkTimer(String userId) async {
+    if (userId.isEmpty) return;
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      final prev = _clockFromData(snap.data());
+      if (prev == null || !prev.paused) return;
+      final now = Timestamp.now();
+      tx.set(
+        clockRef,
+        {
+          'activeTargetKind': prev.kind.key,
+          'activeTargetId': prev.targetId,
+          'activeProjectId': prev.projectId,
+          'taskDescription': prev.taskDescription,
+          'paused': false,
           'segmentStartedAt': now,
         },
         SetOptions(merge: true),
       );
     });
+  }
+
+  /// Actualiza a descrição da tarefa na sessão activa.
+  Future<void> updateWorkTimerTaskDescription(
+    String userId,
+    String description,
+  ) async {
+    if (userId.isEmpty) return;
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+    await clockRef.set(
+      {'taskDescription': description.trim()},
+      SetOptions(merge: true),
+    );
   }
 
   /// Grava o segmento actual no total e continua a contar (checkpoint).
   Future<void> checkpointProjectWorkTimer(String userId) async {
     if (userId.isEmpty) return;
+    await _preloadClockMigrations(userId);
     final clockRef = _db.collection('user_work_clock').doc(userId);
-
-    DocumentSnapshot<Map<String, dynamic>>? preloadSnap;
-    try {
-      preloadSnap = await clockRef.get();
-    } catch (_) {}
-    final d0 = preloadSnap?.data();
-    final pidEarly = (d0?['activeProjectId'] as String?)?.trim();
-    if (pidEarly != null && pidEarly.isNotEmpty) {
-      await _ensureUserProjectWorkIdMigratedOnce(_db, userId, pidEarly).catchError(
-        (e, st) =>
-            debugPrint('TG_Work: migrate antes do relógio (checkpoint): $e\n$st'),
-      );
-    }
 
     await _db.runTransaction((tx) async {
       final snap = await tx.get(clockRef);
-      if (!snap.exists) return;
-      final d = snap.data()!;
-      final pid = d['activeProjectId'] as String?;
-      final st = d['segmentStartedAt'] as Timestamp?;
-      if (pid == null || pid.trim().isEmpty || st == null) return;
+      final prev = _clockFromData(snap.data());
+      if (prev == null || prev.paused || prev.segmentStartedAt == null) return;
       final now = Timestamp.now();
-      final delta = now.toDate().difference(st.toDate()).inSeconds;
-      _transactionAddWorkedSeconds(tx, userId, pid.trim(), delta);
+      final delta =
+          now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+      _transactionAddWorkedSeconds(
+        tx,
+        userId,
+        prev.kind,
+        prev.targetId,
+        prev.projectId,
+        delta,
+      );
+      _txWriteSegment(
+        tx,
+        userId: userId,
+        kind: prev.kind,
+        targetId: prev.targetId,
+        projectId: prev.projectId,
+        description: prev.taskDescription,
+        startedAt: prev.segmentStartedAt!,
+        endedAt: now.toDate(),
+        durationSeconds: delta,
+      );
       tx.set(
         clockRef,
         {
-          'activeProjectId': pid.trim(),
+          'activeTargetKind': prev.kind.key,
+          'activeTargetId': prev.targetId,
+          'activeProjectId': prev.projectId,
+          'taskDescription': prev.taskDescription,
+          'paused': false,
           'segmentStartedAt': now,
         },
         SetOptions(merge: true),
@@ -1208,72 +1479,92 @@ class FirestoreService {
     });
   }
 
-  /// Para o relógio e grava o segmento atual no total do projeto.
+  /// Termina o relógio e grava o segmento actual.
   Future<void> stopProjectWorkTimer(String userId) async {
     if (userId.isEmpty) return;
+    await _preloadClockMigrations(userId);
     final clockRef = _db.collection('user_work_clock').doc(userId);
-
-    DocumentSnapshot<Map<String, dynamic>>? preloadSnap;
-    try {
-      preloadSnap = await clockRef.get();
-    } catch (_) {}
-    final d = preloadSnap?.data();
-    final pidEarly = (d?['activeProjectId'] as String?)?.trim();
-    if (pidEarly != null && pidEarly.isNotEmpty) {
-      await _ensureUserProjectWorkIdMigratedOnce(_db, userId, pidEarly).catchError(
-        (e, st) => debugPrint('TG_Work: migrate antes do relógio (stop): $e\n$st'),
-      );
-    }
 
     await _db.runTransaction((tx) async {
       final snap = await tx.get(clockRef);
-      if (!snap.exists) return;
-      final d = snap.data()!;
-      final pid = d['activeProjectId'] as String?;
-      final st = d['segmentStartedAt'] as Timestamp?;
-      if (pid == null || pid.trim().isEmpty || st == null) return;
+      final prev = _clockFromData(snap.data());
+      if (prev == null) return;
       final now = Timestamp.now();
-      final delta = now.toDate().difference(st.toDate()).inSeconds;
-      _transactionAddWorkedSeconds(tx, userId, pid.trim(), delta);
-      tx.set(
-        clockRef,
-        {
-          'activeProjectId': FieldValue.delete(),
-          'segmentStartedAt': FieldValue.delete(),
-        },
-        SetOptions(merge: true),
-      );
+      if (!prev.paused && prev.segmentStartedAt != null) {
+        final delta =
+            now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+        _transactionAddWorkedSeconds(
+          tx,
+          userId,
+          prev.kind,
+          prev.targetId,
+          prev.projectId,
+          delta,
+        );
+        _txWriteSegment(
+          tx,
+          userId: userId,
+          kind: prev.kind,
+          targetId: prev.targetId,
+          projectId: prev.projectId,
+          description: prev.taskDescription,
+          startedAt: prev.segmentStartedAt!,
+          endedAt: now.toDate(),
+          durationSeconds: delta,
+        );
+      }
+      tx.set(clockRef, _clockClearFields(), SetOptions(merge: true));
     });
   }
 
-  /// Ao sair do ecrã do projeto: só grava e limpa se o relógio activo for mesmo [projectId].
+  /// Ao sair do ecrã: só grava e limpa se o relógio activo for mesmo este alvo.
   Future<void> stopProjectWorkTimerIfMatchingProject(
     String userId,
     String projectId,
-  ) async {
-    if (userId.isEmpty || projectId.isEmpty) return;
-    await _ensureUserProjectWorkIdMigratedOnce(_db, userId, projectId).catchError(
-      (e, st) => debugPrint('TG_Work: migrate antes do relógio (leave): $e\n$st'),
-    );
+  ) =>
+      stopWorkTimerIfMatching(
+        userId: userId,
+        kind: WorkTargetKind.project,
+        targetId: projectId,
+      );
+
+  Future<void> stopWorkTimerIfMatching({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+  }) async {
+    if (userId.isEmpty || targetId.isEmpty) return;
+    await _prepareWorkTotals(userId, kind, targetId);
     final clockRef = _db.collection('user_work_clock').doc(userId);
     await _db.runTransaction((tx) async {
       final snap = await tx.get(clockRef);
-      if (!snap.exists) return;
-      final d = snap.data()!;
-      final pid = d['activeProjectId'] as String?;
-      final st = d['segmentStartedAt'] as Timestamp?;
-      if (pid == null || pid.trim() != projectId || st == null) return;
+      final prev = _clockFromData(snap.data());
+      if (prev == null || !prev.isActiveOn(kind, targetId)) return;
       final now = Timestamp.now();
-      final delta = now.toDate().difference(st.toDate()).inSeconds;
-      _transactionAddWorkedSeconds(tx, userId, pid.trim(), delta);
-      tx.set(
-        clockRef,
-        {
-          'activeProjectId': FieldValue.delete(),
-          'segmentStartedAt': FieldValue.delete(),
-        },
-        SetOptions(merge: true),
-      );
+      if (!prev.paused && prev.segmentStartedAt != null) {
+        final delta =
+            now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+        _transactionAddWorkedSeconds(
+          tx,
+          userId,
+          prev.kind,
+          prev.targetId,
+          prev.projectId,
+          delta,
+        );
+        _txWriteSegment(
+          tx,
+          userId: userId,
+          kind: prev.kind,
+          targetId: prev.targetId,
+          projectId: prev.projectId,
+          description: prev.taskDescription,
+          startedAt: prev.segmentStartedAt!,
+          endedAt: now.toDate(),
+          durationSeconds: delta,
+        );
+      }
+      tx.set(clockRef, _clockClearFields(), SetOptions(merge: true));
     });
   }
 

@@ -10,12 +10,15 @@ import '../../services/firestore_service.dart';
 import '../../services/note_recording_storage.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/user_display.dart';
+import '../../utils/windows_firestore_compat.dart';
 import '../../widgets/entity_notes_section.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/note_recording_playback.dart';
+import '../../widgets/project_work_timer_card.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../../widgets/voice_dictation_text_field.dart';
+import '../../models/work_target_kind.dart';
 import '../developments/developments_screen.dart';
 
 class ThemeDetailScreen extends StatefulWidget {
@@ -262,6 +265,19 @@ class _ThemeDetailBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _InfoCard(theme: theme, fmt: fmt),
+        const SizedBox(height: 16),
+        if (!disableManualWorkTimerOnDesktop)
+          ProjectWorkTimerCard(
+            kind: WorkTargetKind.theme,
+            targetId: theme.id,
+            targetName: theme.name,
+            projectId: theme.projectId,
+            userId: userId,
+            service: service,
+            canStartByStatus: theme.status == ThemeStatus.emAndamento,
+            lockedStatusMessage:
+                'O relógio só conta quando o tema está em «Em Andamento».',
+          ),
         const SizedBox(height: 20),
         EntityNotesSection(
           parent: JournalNoteParent.theme,

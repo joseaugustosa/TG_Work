@@ -1,27 +1,60 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/active_work_clock.dart';
-import '../models/project.dart';
+import '../models/work_target_kind.dart';
 import '../services/firestore_service.dart';
 import '../utils/work_timer_format.dart';
 
-/// Tempo neste projeto: Arrancar, Pausar, Parar e Gravar (checkpoint).
-/// Só permite iniciar se [projectStatus] == [ProjectStatus.emExecucao].
+/// Tempo neste alvo (projeto / tema / desenvolvimento):
+/// Arrancar, Pausar, Retomar, Gravar e Terminar, com descrição da tarefa.
 class ProjectWorkTimerCard extends StatefulWidget {
+  final WorkTargetKind kind;
+  final String targetId;
+  final String targetName;
   final String projectId;
-  final String projectName;
   final String userId;
   final FirestoreService service;
-  final ProjectStatus projectStatus;
+  /// Se false, não permite iniciar (ex.: projeto não «Em Execução»).
+  final bool canStartByStatus;
+  final String lockedStatusMessage;
 
   const ProjectWorkTimerCard({
     super.key,
-    required this.projectId,
-    required this.projectName,
+    this.kind = WorkTargetKind.project,
+    required this.targetId,
+    required this.targetName,
+    String? projectId,
     required this.userId,
     required this.service,
-    required this.projectStatus,
-  });
+    this.canStartByStatus = true,
+    this.lockedStatusMessage =
+        'O relógio só conta neste estado de trabalho.',
+  }) : projectId = projectId ?? targetId;
+
+  /// Compat com ecrã de projeto.
+  factory ProjectWorkTimerCard.forProject({
+    Key? key,
+    required String projectId,
+    required String projectName,
+    required String userId,
+    required FirestoreService service,
+    required bool canStartByStatus,
+  }) {
+    return ProjectWorkTimerCard(
+      key: key,
+      kind: WorkTargetKind.project,
+      targetId: projectId,
+      targetName: projectName,
+      projectId: projectId,
+      userId: userId,
+      service: service,
+      canStartByStatus: canStartByStatus,
+      lockedStatusMessage:
+          'O relógio só conta quando o projeto está em «Em Execução».',
+    );
+  }
 
   @override
   State<ProjectWorkTimerCard> createState() => _ProjectWorkTimerCardState();
@@ -29,6 +62,22 @@ class ProjectWorkTimerCard extends StatefulWidget {
 
 class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
   bool _busy = false;
+  late final TextEditingController _descCtrl;
+  Timer? _descDebounce;
+  String _lastSyncedDesc = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _descCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _descDebounce?.cancel();
+    _descCtrl.dispose();
+    super.dispose();
+  }
 
   void _snack(String msg, {bool error = false}) {
     if (!mounted) return;
@@ -54,18 +103,29 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
   }
 
   Future<void> _start() => _run(
-        () => widget.service.startProjectWorkTimer(widget.userId, widget.projectId),
+        () => widget.service.startWorkTimer(
+          userId: widget.userId,
+          kind: widget.kind,
+          targetId: widget.targetId,
+          projectId: widget.projectId,
+          taskDescription: _descCtrl.text,
+        ),
         'Tempo a contar.',
       );
 
   Future<void> _pause() => _run(
-        () => widget.service.stopProjectWorkTimer(widget.userId),
-        'Pausado — tempo gravado.',
+        () => widget.service.pauseWorkTimer(widget.userId),
+        'Em pausa — tempo gravado.',
+      );
+
+  Future<void> _resume() => _run(
+        () => widget.service.resumeWorkTimer(widget.userId),
+        'Retomado.',
       );
 
   Future<void> _stop() => _run(
         () => widget.service.stopProjectWorkTimer(widget.userId),
-        'Parado — tempo gravado.',
+        'Terminado — tempo gravado.',
       );
 
   Future<void> _saveCheckpoint() => _run(
@@ -73,33 +133,74 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
         'Segmento gravado — contagem continua.',
       );
 
+  void _onDescChanged(ActiveWorkClock? clock) {
+    final activeHere = clock?.isActiveOn(widget.kind, widget.targetId) == true;
+    if (!activeHere) return;
+    final text = _descCtrl.text.trim();
+    if (text == _lastSyncedDesc) return;
+    _descDebounce?.cancel();
+    _descDebounce = Timer(const Duration(milliseconds: 600), () async {
+      _lastSyncedDesc = text;
+      try {
+        await widget.service
+            .updateWorkTimerTaskDescription(widget.userId, text);
+      } catch (_) {}
+    });
+  }
+
+  void _syncDescFromClock(ActiveWorkClock? clock) {
+    final activeHere = clock?.isActiveOn(widget.kind, widget.targetId) == true;
+    if (!activeHere) return;
+    final remote = clock?.taskDescription ?? '';
+    if (remote == _descCtrl.text) {
+      _lastSyncedDesc = remote;
+      return;
+    }
+    // Só sincroniza se o campo local ainda está vazio ou igual ao último sync.
+    if (_descCtrl.text.isEmpty || _descCtrl.text == _lastSyncedDesc) {
+      _descCtrl.text = remote;
+      _lastSyncedDesc = remote;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.userId.isEmpty) return const SizedBox.shrink();
+
+    final kindLabel = widget.kind.label;
 
     return StreamBuilder<ActiveWorkClock?>(
       stream: widget.service.watchActiveWorkClock(widget.userId),
       builder: (context, clockSnap) {
         final clock = clockSnap.data;
-        final activeHere = clock?.projectId == widget.projectId;
+        final activeHere =
+            clock?.isActiveOn(widget.kind, widget.targetId) == true;
+        final runningHere =
+            clock?.isRunningOn(widget.kind, widget.targetId) == true;
+        final pausedHere = activeHere && (clock?.paused == true);
+
+        if (activeHere) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _syncDescFromClock(clock);
+          });
+        }
 
         return StreamBuilder<int>(
-          stream: widget.service
-              .watchProjectWorkedSeconds(widget.userId, widget.projectId),
+          stream: widget.service.watchEntityWorkedSeconds(
+            widget.userId,
+            widget.kind,
+            widget.targetId,
+          ),
           builder: (context, totalSnap) {
             final logged = totalSnap.data ?? 0;
 
             Widget body(int tick) {
-              final segmentSec = activeHere && clock != null
-                  ? DateTime.now()
-                      .difference(clock.segmentStartedAt)
-                      .inSeconds
-                      .clamp(0, 8640000)
+              final segmentSec = runningHere && clock != null
+                  ? clock.liveSegmentSeconds(DateTime.now())
                   : 0;
               final displayTotal = logged + segmentSec;
-              final isEmExecucao =
-                  widget.projectStatus == ProjectStatus.emExecucao;
-              final canStart = isEmExecucao && !_busy && !activeHere;
+              final canStart =
+                  widget.canStartByStatus && !_busy && !activeHere;
               final canControl = !_busy && activeHere;
 
               return Card(
@@ -117,14 +218,18 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                           Icon(
                             Icons.timer_outlined,
                             color: activeHere
-                                ? Colors.orange[800]
+                                ? (pausedHere
+                                    ? Colors.blueGrey[700]
+                                    : Colors.orange[800])
                                 : Colors.grey[800],
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               activeHere
-                                  ? 'A registar tempo neste projeto'
+                                  ? (pausedHere
+                                      ? 'Em pausa neste $kindLabel'
+                                      : 'A registar tempo neste $kindLabel')
                                   : 'Tempo de trabalho',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
@@ -136,7 +241,7 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                         ],
                       ),
                       const SizedBox(height: 10),
-                      if (!isEmExecucao)
+                      if (!widget.canStartByStatus)
                         Container(
                           margin: const EdgeInsets.only(bottom: 10),
                           padding: const EdgeInsets.all(10),
@@ -152,7 +257,7 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'O relógio só conta quando o projeto está em «Em Execução».',
+                                  widget.lockedStatusMessage,
                                   style: TextStyle(
                                       fontSize: 12, color: Colors.grey[700]),
                                 ),
@@ -162,18 +267,31 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                         )
                       else
                         Text(
-                          'Arrancar inicia a contagem. Pausar ou Parar grava o segmento e pára. '
-                          'Gravar guarda o tempo até agora e continua a contar. '
-                          'Só podes estar a contar num projeto de cada vez.',
+                          'Descreve a tarefa, arranca, pausa/retoma e termina '
+                          'para gravar no $kindLabel. Só podes contar num sítio de cada vez.',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[700],
                             height: 1.35,
                           ),
                         ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _descCtrl,
+                        enabled: !_busy &&
+                            (widget.canStartByStatus || activeHere),
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Descrição da tarefa',
+                          hintText: 'Ex.: implementar autenticação',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (_) => _onDescChanged(clock),
+                      ),
                       const SizedBox(height: 14),
                       Text(
-                        'Tempo gravado (${widget.projectName})',
+                        'Tempo gravado (${widget.targetName})',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -189,12 +307,20 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                           letterSpacing: 0.5,
                         ),
                       ),
-                      if (activeHere) ...[
+                      if (runningHere) ...[
                         const SizedBox(height: 6),
                         Text(
                           'Sessão actual: ${formatWorkDurationSeconds(segmentSec)}',
                           style:
                               TextStyle(fontSize: 13, color: Colors.orange[900]),
+                        ),
+                      ],
+                      if (pausedHere) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Em pausa — retoma para continuar.',
+                          style:
+                              TextStyle(fontSize: 13, color: Colors.blueGrey[800]),
                         ),
                       ],
                       if (clock != null && !activeHere) ...[
@@ -213,8 +339,9 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Estás a registar tempo noutro projeto. '
-                                  'Podes passar a contagem para este.',
+                                  'Estás a registar tempo noutro sítio'
+                                  '${clock.taskDescription.isNotEmpty ? ' (${clock.taskDescription})' : ''}. '
+                                  'Podes passar a contagem para este $kindLabel.',
                                   style: TextStyle(
                                       fontSize: 12, color: Colors.grey[900]),
                                 ),
@@ -234,21 +361,29 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
                               ),
-                              onPressed: canStart ? _start : null,
-                              icon: const Icon(Icons.play_arrow),
-                              label: const Text('Arrancar'),
+                              onPressed: pausedHere
+                                  ? (_busy ? null : _resume)
+                                  : (canStart ? _start : null),
+                              icon: Icon(
+                                pausedHere
+                                    ? Icons.play_arrow
+                                    : Icons.play_arrow,
+                              ),
+                              label: Text(pausedHere ? 'Retomar' : 'Arrancar'),
                             ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor:
-                                    canControl ? Colors.orange.shade900 : null,
+                                foregroundColor: canControl && runningHere
+                                    ? Colors.orange.shade900
+                                    : null,
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
                               ),
-                              onPressed: canControl ? _pause : null,
+                              onPressed:
+                                  canControl && runningHere ? _pause : null,
                               icon: const Icon(Icons.pause),
                               label: const Text('Pausar'),
                             ),
@@ -261,12 +396,15 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                           Expanded(
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor:
-                                    canControl ? const Color(0xFF1A237E) : null,
+                                foregroundColor: canControl && runningHere
+                                    ? const Color(0xFF1A237E)
+                                    : null,
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
                               ),
-                              onPressed: canControl ? _saveCheckpoint : null,
+                              onPressed: canControl && runningHere
+                                  ? _saveCheckpoint
+                                  : null,
                               icon: const Icon(Icons.save_outlined),
                               label: const Text('Gravar'),
                             ),
@@ -282,30 +420,39 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                               ),
                               onPressed: canControl ? _stop : null,
                               icon: const Icon(Icons.stop),
-                              label: const Text('Parar'),
+                              label: const Text('Terminar'),
                             ),
                           ),
                         ],
                       ),
-                      if (isEmExecucao && clock != null && !activeHere) ...[
+                      if (widget.canStartByStatus &&
+                          clock != null &&
+                          !activeHere) ...[
                         const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
                           child: TextButton.icon(
                             onPressed: _busy ? null : _start,
                             icon: const Icon(Icons.swap_horiz),
-                            label: const Text(
-                                'Passar contagem para este projeto'),
+                            label: Text(
+                                'Passar contagem para este $kindLabel'),
                           ),
                         ),
                       ],
+                      const SizedBox(height: 12),
+                      _SegmentsList(
+                        service: widget.service,
+                        userId: widget.userId,
+                        kind: widget.kind,
+                        targetId: widget.targetId,
+                      ),
                     ],
                   ),
                 ),
               );
             }
 
-            if (activeHere && clock != null) {
+            if (runningHere) {
               return StreamBuilder<int>(
                 stream: Stream.periodic(
                   const Duration(seconds: 1),
@@ -317,6 +464,89 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
             }
             return body(0);
           },
+        );
+      },
+    );
+  }
+}
+
+class _SegmentsList extends StatelessWidget {
+  final FirestoreService service;
+  final String userId;
+  final WorkTargetKind kind;
+  final String targetId;
+
+  const _SegmentsList({
+    required this.service,
+    required this.userId,
+    required this.kind,
+    required this.targetId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<WorkTimeSegment>>(
+      stream: service.watchWorkSegments(
+        userId: userId,
+        kind: kind,
+        targetId: targetId,
+        limit: 8,
+      ),
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return Text(
+            'Histórico de tarefas indisponível por agora.',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          );
+        }
+        final items = snap.data ?? const <WorkTimeSegment>[];
+        if (items.isEmpty) {
+          return Text(
+            'Ainda sem segmentos gravados.',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Últimas tarefas',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+            const SizedBox(height: 6),
+            ...items.map((s) {
+              final title = s.description.isEmpty
+                  ? '(sem descrição)'
+                  : s.description;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      formatWorkDurationSeconds(s.durationSeconds),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
         );
       },
     );

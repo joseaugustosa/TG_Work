@@ -161,6 +161,33 @@ service cloud.firestore {
         resource.exists && resource.data.userId == request.auth.uid;
     }
 
+    match /user_theme_work/{docId} {
+      allow read: if isActiveUser() &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow create, update: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid;
+      allow delete: if isActiveUser() &&
+        resource.exists && resource.data.userId == request.auth.uid;
+    }
+
+    match /user_development_work/{docId} {
+      allow read: if isActiveUser() &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow create, update: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid;
+      allow delete: if isActiveUser() &&
+        resource.exists && resource.data.userId == request.auth.uid;
+    }
+
+    match /user_work_segments/{docId} {
+      allow read: if isActiveUser() &&
+        (!resource.exists || resource.data.userId == request.auth.uid);
+      allow create: if isActiveUser() &&
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isActiveUser() &&
+        resource.exists && resource.data.userId == request.auth.uid;
+    }
+
     match /user_ide_session_logs/{docId} {
       allow read: if isActiveUser() &&
         (!resource.exists || resource.data.userId == request.auth.uid);

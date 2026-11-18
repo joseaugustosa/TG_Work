@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/project.dart';
 import '../models/user_billing_settings.dart';
 import '../models/active_work_clock.dart';
+import '../models/work_target_kind.dart';
 import '../models/ide_session_log.dart';
 import '../services/firestore_service.dart';
 import '../utils/billing_calculation.dart';
@@ -250,18 +251,17 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
                                 stream: _firestore.watchActiveWorkClock(uid),
                                 builder: (context, cSnap) {
                                   final clock = cSnap.data;
-                                  final activeHere =
-                                      clock?.projectId == project.id;
+                                  final activeHere = clock != null &&
+                                      clock.kind == WorkTargetKind.project &&
+                                      clock.targetId == project.id &&
+                                      !clock.paused;
 
                                   int clockTotal(int tick) {
                                     if (!activeHere || clock == null) {
                                       return stored;
                                     }
-                                    final seg = DateTime.now()
-                                        .difference(clock.segmentStartedAt)
-                                        .inSeconds
-                                        .clamp(0, 8640000);
-                                    return stored + seg;
+                                    return stored +
+                                        clock.liveSegmentSeconds(DateTime.now());
                                   }
 
                                   Widget cardBody(int clockSecs) {
