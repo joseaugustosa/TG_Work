@@ -439,13 +439,6 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 12),
-                      _SegmentsList(
-                        service: widget.service,
-                        userId: widget.userId,
-                        kind: widget.kind,
-                        targetId: widget.targetId,
-                      ),
                     ],
                   ),
                 ),
@@ -464,89 +457,6 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
             }
             return body(0);
           },
-        );
-      },
-    );
-  }
-}
-
-class _SegmentsList extends StatelessWidget {
-  final FirestoreService service;
-  final String userId;
-  final WorkTargetKind kind;
-  final String targetId;
-
-  const _SegmentsList({
-    required this.service,
-    required this.userId,
-    required this.kind,
-    required this.targetId,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<WorkTimeSegment>>(
-      stream: service.watchWorkSegments(
-        userId: userId,
-        kind: kind,
-        targetId: targetId,
-        limit: 8,
-      ),
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return Text(
-            'Histórico de tarefas indisponível por agora.',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-          );
-        }
-        final items = snap.data ?? const <WorkTimeSegment>[];
-        if (items.isEmpty) {
-          return Text(
-            'Ainda sem segmentos gravados.',
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Últimas tarefas',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
-              ),
-            ),
-            const SizedBox(height: 6),
-            ...items.map((s) {
-              final title = s.description.isEmpty
-                  ? '(sem descrição)'
-                  : s.description;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      formatWorkDurationSeconds(s.durationSeconds),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[800],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
         );
       },
     );

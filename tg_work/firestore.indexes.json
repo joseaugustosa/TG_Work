@@ -17,6 +17,23 @@
         { "fieldPath": "targetId", "order": "ASCENDING" },
         { "fieldPath": "endedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "user_work_segments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "endedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "user_work_segments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "endedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

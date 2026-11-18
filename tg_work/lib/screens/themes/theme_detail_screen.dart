@@ -15,6 +15,7 @@ import '../../widgets/entity_notes_section.dart';
 import '../../widgets/note_recording_editor.dart';
 import '../../widgets/note_recording_playback.dart';
 import '../../widgets/project_work_timer_card.dart';
+import '../../widgets/work_timer_sessions_card.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/history_entry_tile.dart';
 import '../../widgets/voice_dictation_text_field.dart';
@@ -266,7 +267,7 @@ class _ThemeDetailBody extends StatelessWidget {
       children: [
         _InfoCard(theme: theme, fmt: fmt),
         const SizedBox(height: 16),
-        if (!disableManualWorkTimerOnDesktop)
+        if (!disableManualWorkTimerOnDesktop) ...[
           ProjectWorkTimerCard(
             kind: WorkTargetKind.theme,
             targetId: theme.id,
@@ -278,6 +279,15 @@ class _ThemeDetailBody extends StatelessWidget {
             lockedStatusMessage:
                 'O relógio só conta quando o tema está em «Em Andamento».',
           ),
+          const SizedBox(height: 16),
+          WorkTimerSessionsCard(
+            service: service,
+            userId: userId,
+            kind: WorkTargetKind.theme,
+            targetId: theme.id,
+            targetName: theme.name,
+          ),
+        ],
         const SizedBox(height: 20),
         EntityNotesSection(
           parent: JournalNoteParent.theme,

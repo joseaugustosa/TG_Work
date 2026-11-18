@@ -23,9 +23,11 @@ import '../../widgets/project_people_fields.dart';
 import '../../widgets/project_status_picker.dart';
 import '../../widgets/voice_dictation_text_field.dart';
 import '../../widgets/history_entry_tile.dart';
+import '../../models/work_target_kind.dart';
 import '../../widgets/project_work_timer_card.dart';
 import '../../widgets/project_workspace_timer_host.dart';
 import '../../widgets/project_ide_sessions_card.dart';
+import '../../widgets/work_timer_sessions_card.dart';
 import '../themes/themes_screen.dart';
 import 'project_tree_screen.dart';
 
@@ -431,7 +433,7 @@ class _ProjectDetailBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        if (!disableManualWorkTimerOnDesktop)
+        if (!disableManualWorkTimerOnDesktop) ...[
           ProjectWorkTimerCard.forProject(
             projectId: project.id,
             projectName: project.name,
@@ -439,6 +441,16 @@ class _ProjectDetailBody extends StatelessWidget {
             service: service,
             canStartByStatus: project.status == ProjectStatus.emExecucao,
           ),
+          const SizedBox(height: 16),
+          WorkTimerSessionsCard(
+            service: service,
+            userId: userId,
+            kind: WorkTargetKind.project,
+            targetId: project.id,
+            targetName: project.name,
+            includeChildrenUnderProject: true,
+          ),
+        ],
         const SizedBox(height: 16),
         ProjectIdeSessionsCard(
           service: service,

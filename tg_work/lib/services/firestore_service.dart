@@ -1137,6 +1137,54 @@ class FirestoreService {
         });
   }
 
+  /// Todos os segmentos do relógio ligados a um projeto (inclui tema/dev).
+  Stream<List<WorkTimeSegment>> watchWorkSegmentsForProject({
+    required String userId,
+    required String projectId,
+    int limit = 200,
+  }) {
+    if (userId.isEmpty || projectId.isEmpty) {
+      return Stream.value(const []);
+    }
+    return _db
+        .collection('user_work_segments')
+        .where('userId', isEqualTo: userId)
+        .where('projectId', isEqualTo: projectId)
+        .orderBy('endedAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => WorkTimeSegment.fromMap(d.data(), d.id))
+              .toList(),
+        )
+        .handleError((e, st) {
+          debugPrint('TG_Work: watchWorkSegmentsForProject: $e\n$st');
+        });
+  }
+
+  /// Todos os segmentos do utilizador (Agenda / linha de tempo global).
+  Stream<List<WorkTimeSegment>> watchAllUserWorkSegments(
+    String userId, {
+    int limit = 500,
+  }) {
+    if (userId.isEmpty) return Stream.value(const []);
+    return _db
+        .collection('user_work_segments')
+        .where('userId', isEqualTo: userId)
+        .orderBy('endedAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => WorkTimeSegment.fromMap(d.data(), d.id))
+              .toList(),
+        )
+        .handleError((e, st) {
+          debugPrint('TG_Work: watchAllUserWorkSegments: $e\n$st');
+        });
+  }
+
   Future<void> _prepareWorkTotals(
     String userId,
     WorkTargetKind kind,

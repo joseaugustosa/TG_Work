@@ -2,16 +2,20 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import '../../models/active_work_clock.dart';
 import '../../models/ide_schedule_card.dart';
 import '../../models/ide_schedule_lane.dart';
+import '../../models/ide_session_kind.dart';
 import '../../models/ide_session_log.dart';
 import '../../models/project.dart';
+import '../../models/work_target_kind.dart';
 import '../../services/firestore_service.dart';
 import '../../utils/firestore_messages.dart';
-import '../../models/ide_session_kind.dart';
 import '../../utils/ide_project_session_summary.dart';
 import '../../utils/user_display.dart';
+import '../../utils/work_segment_timeline.dart';
 import '../../utils/work_timer_format.dart';
 import '../../widgets/edit_ide_session_dialog.dart';
 import '../../widgets/ide_session_progressive_chart.dart';
@@ -814,6 +818,106 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                 ),
                 const SizedBox(height: 8),
               ],
+              const SizedBox(height: 20),
+              StreamBuilder<List<WorkTimeSegment>>(
+                stream: _service.watchAllUserWorkSegments(uid, limit: 500),
+                builder: (context, timerSnap) {
+                  final segments = timerSnap.data ?? const <WorkTimeSegment>[];
+                  if (timerSnap.hasError) {
+                    return Text(
+                      'Erro ao carregar segmentos do relógio: ${timerSnap.error}',
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    );
+                  }
+                  if (segments.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  final byDay = groupWorkSegmentsByLocalDay(segments);
+                  final dayFmt = DateFormat('dd/MM/yyyy');
+                  final timeFmt = DateFormat('HH:mm');
+                  String projectLabel(String pid) {
+                    for (final p in projects) {
+                      if (p.id == pid) return p.name;
+                    }
+                    return pid.isEmpty ? 'Sem projeto' : 'Projeto $pid';
+                  }
+                  String kindLabel(WorkTargetKind k) {
+                    switch (k) {
+                      case WorkTargetKind.project:
+                        return 'Projeto';
+                      case WorkTargetKind.theme:
+                        return 'Tema';
+                      case WorkTargetKind.development:
+                        return 'Desenvolvimento';
+                    }
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Lista por dia (relógio manual)',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.blueGrey.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Segmentos do timer com descrição da tarefa — mesma ideia da lista IDE acima.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.38,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      for (final day in byDay.keys) ...[
+                        Text(
+                          dayFmt.format(day),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...byDay[day]!.map((s) {
+                          final desc = s.description.isEmpty
+                              ? '(sem descrição)'
+                              : s.description;
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: const Color(0x1A1A237E),
+                                child: Icon(
+                                  Icons.timer_outlined,
+                                  color: Colors.blueGrey[700],
+                                  size: 20,
+                                ),
+                              ),
+                              title: Text(
+                                '$desc · ${formatWorkDurationSeconds(s.durationSeconds)}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: Text(
+                                '${kindLabel(s.kind)} · ${projectLabel(s.projectId)}\n'
+                                '${timeFmt.format(s.startedAt)} → ${timeFmt.format(s.endedAt)}',
+                                style: TextStyle(
+                                  height: 1.35,
+                                  color: Colors.grey.shade800,
+                                ),
+                              ),
+                              isThreeLine: true,
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         );
