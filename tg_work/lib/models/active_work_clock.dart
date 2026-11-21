@@ -84,6 +84,7 @@ class WorkTimeSegment {
   final DateTime startedAt;
   final DateTime endedAt;
   final int durationSeconds;
+  final bool isManual;
 
   const WorkTimeSegment({
     required this.id,
@@ -95,6 +96,7 @@ class WorkTimeSegment {
     required this.startedAt,
     required this.endedAt,
     required this.durationSeconds,
+    this.isManual = false,
   });
 
   factory WorkTimeSegment.fromMap(Map<String, dynamic> map, String id) {
@@ -118,6 +120,7 @@ class WorkTimeSegment {
       startedAt: parse(map['startedAt']),
       endedAt: parse(map['endedAt']),
       durationSeconds: secs is int ? secs : (secs is num ? secs.toInt() : 0),
+      isManual: (map['source'] as String?)?.trim() == 'manual',
     );
   }
 }

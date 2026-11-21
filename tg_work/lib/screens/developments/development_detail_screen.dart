@@ -287,6 +287,7 @@ class _DevDetailBody extends StatelessWidget {
             kind: WorkTargetKind.development,
             targetId: dev.id,
             targetName: dev.name,
+            projectId: dev.projectId,
           ),
         ],
         const SizedBox(height: 20),

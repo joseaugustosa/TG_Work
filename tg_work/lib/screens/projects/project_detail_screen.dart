@@ -448,6 +448,7 @@ class _ProjectDetailBody extends StatelessWidget {
             kind: WorkTargetKind.project,
             targetId: project.id,
             targetName: project.name,
+            projectId: project.id,
             includeChildrenUnderProject: true,
           ),
         ],

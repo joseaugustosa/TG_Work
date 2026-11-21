@@ -286,6 +286,7 @@ class _ThemeDetailBody extends StatelessWidget {
             kind: WorkTargetKind.theme,
             targetId: theme.id,
             targetName: theme.name,
+            projectId: theme.projectId,
           ),
         ],
         const SizedBox(height: 20),

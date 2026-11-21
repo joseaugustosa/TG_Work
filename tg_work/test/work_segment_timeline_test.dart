@@ -19,6 +19,7 @@ WorkTimeSegment _seg({
     startedAt: endedAt.subtract(Duration(seconds: seconds)),
     endedAt: endedAt,
     durationSeconds: seconds,
+    isManual: false,
   );
 }
 

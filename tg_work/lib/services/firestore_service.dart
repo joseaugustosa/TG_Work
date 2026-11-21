@@ -13,6 +13,7 @@ import '../models/status_change.dart';
 import '../models/user_billing_settings.dart';
 import '../models/active_work_clock.dart';
 import '../models/work_target_kind.dart';
+import '../utils/manual_work_segment.dart';
 import '../models/ide_schedule_card.dart';
 import '../models/ide_schedule_lane.dart';
 import '../models/ide_session_log.dart';
@@ -1648,6 +1649,101 @@ class FirestoreService {
         queriedDocumentCount: n,
         hitQueryLimit: n >= lim,
       );
+    });
+  }
+
+  /// Segmento do relógio introduzido manualmente (dia + duração + descrição).
+  Future<String> addManualWorkSegment({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required DateTime workDay,
+    required int durationSeconds,
+    String description = '',
+  }) async {
+    if (userId.isEmpty) throw ArgumentError('userId');
+    if (targetId.trim().isEmpty) throw ArgumentError('targetId');
+    if (projectId.trim().isEmpty) throw ArgumentError('projectId');
+    if (durationSeconds <= 0) {
+      throw ArgumentError('durationSeconds deve ser > 0');
+    }
+
+    final tid = targetId.trim();
+    final pid = projectId.trim();
+    await _prepareWorkTotals(userId, kind, tid);
+
+    final window = manualWorkSegmentWindow(workDay, durationSeconds);
+    final desc = description.trim();
+    final ref = _db.collection('user_work_segments').doc();
+
+    await _db.runTransaction((tx) async {
+      _transactionAddWorkedSeconds(
+        tx,
+        userId,
+        kind,
+        tid,
+        pid,
+        durationSeconds,
+      );
+      tx.set(ref, {
+        'userId': userId,
+        'targetKind': kind.key,
+        'targetId': tid,
+        'projectId': pid,
+        'description': desc,
+        'startedAt': Timestamp.fromDate(window.startedAt),
+        'endedAt': Timestamp.fromDate(window.endedAt),
+        'durationSeconds': durationSeconds,
+        'source': 'manual',
+      });
+    });
+    return ref.id;
+  }
+
+  /// Apaga só segmentos manuais do próprio utilizador e desconta o total.
+  Future<void> deleteManualWorkSegment({
+    required String userId,
+    required String segmentId,
+  }) async {
+    if (userId.isEmpty || segmentId.isEmpty) {
+      throw ArgumentError('userId/segmentId');
+    }
+    final ref = _db.collection('user_work_segments').doc(segmentId);
+    final snap = await ref.get();
+    if (!snap.exists) throw StateError('Segmento não encontrado');
+    final data = snap.data();
+    if (data == null) throw StateError('Segmento sem dados');
+    if ((data['userId'] as String?) != userId) {
+      throw StateError('Segmento de outro utilizador');
+    }
+    if ((data['source'] as String?)?.trim() != 'manual') {
+      throw StateError('Só se podem apagar segmentos manuais');
+    }
+
+    final seg = WorkTimeSegment.fromMap(data, segmentId);
+    await _prepareWorkTotals(userId, seg.kind, seg.targetId);
+
+    await _db.runTransaction((tx) async {
+      if (seg.durationSeconds > 0) {
+        final totalsRef = _db
+            .collection(workTotalsCollection(seg.kind))
+            .doc(workTotalsDocId(userId, seg.kind, seg.targetId));
+        tx.set(
+          totalsRef,
+          {
+            'userId': userId,
+            'targetKind': seg.kind.key,
+            'targetId': seg.targetId,
+            'projectId':
+                seg.kind == WorkTargetKind.project ? seg.targetId : seg.projectId,
+            'totalSeconds': FieldValue.increment(-seg.durationSeconds),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+      tx.delete(ref);
     });
   }
 
