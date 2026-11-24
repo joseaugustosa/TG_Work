@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'note_recording_storage.dart';
+// defaultTargetPlatform / TargetPlatform via foundation.dart
 import '../utils/user_display.dart';
 import '../utils/entity_change_summary.dart';
 import '../models/app_user.dart';
@@ -1294,6 +1295,31 @@ class FirestoreService {
     }
   }
 
+  /// Evitar `runTransaction` no relógio: no Windows o SDK C++ crashava
+  /// (APPCRASH 0xe06d7363 / KERNELBASE) ao Arrancar/Pausar. get+set é suficiente.
+  bool get _workTimerAvoidTransactions => true;
+
+  Map<String, dynamic> _workedSecondsPayload({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required int seconds,
+  }) {
+    final data = <String, dynamic>{
+      'userId': userId,
+      'targetKind': kind.key,
+      'targetId': targetId,
+      'projectId': projectId,
+      'totalSeconds': FieldValue.increment(seconds),
+      'updatedAt': Timestamp.now(),
+    };
+    if (kind == WorkTargetKind.project) {
+      data['projectId'] = targetId;
+    }
+    return data;
+  }
+
   void _transactionAddWorkedSeconds(
     Transaction tx,
     String userId,
@@ -1306,18 +1332,40 @@ class FirestoreService {
     final ref = _db
         .collection(workTotalsCollection(kind))
         .doc(workTotalsDocId(userId, kind, targetId));
-    final data = <String, dynamic>{
-      'userId': userId,
-      'targetKind': kind.key,
-      'targetId': targetId,
-      'projectId': projectId,
-      'totalSeconds': FieldValue.increment(seconds),
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    if (kind == WorkTargetKind.project) {
-      data['projectId'] = targetId;
-    }
-    tx.set(ref, data, SetOptions(merge: true));
+    tx.set(
+      ref,
+      _workedSecondsPayload(
+        userId: userId,
+        kind: kind,
+        targetId: targetId,
+        projectId: projectId,
+        seconds: seconds,
+      ),
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> _addWorkedSecondsDirect({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required int seconds,
+  }) async {
+    if (seconds <= 0 || targetId.isEmpty) return;
+    final ref = _db
+        .collection(workTotalsCollection(kind))
+        .doc(workTotalsDocId(userId, kind, targetId));
+    await ref.set(
+      _workedSecondsPayload(
+        userId: userId,
+        kind: kind,
+        targetId: targetId,
+        projectId: projectId,
+        seconds: seconds,
+      ),
+      SetOptions(merge: true),
+    );
   }
 
   ActiveWorkClock? _clockFromData(Map<String, dynamic>? d) {
@@ -1350,6 +1398,38 @@ class FirestoreService {
         'taskDescription': taskDescription,
       };
 
+  Map<String, dynamic> _segmentDocumentFields({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required String description,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required int durationSeconds,
+    required WorkSegmentEvent event,
+    WorkSegmentSource source = WorkSegmentSource.timer,
+  }) {
+    final fields = buildWorkSegmentExportFields(
+      userId: userId,
+      kind: kind,
+      targetId: targetId,
+      projectId: projectId,
+      description: description,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      durationSeconds: durationSeconds,
+      source: source,
+      event: event,
+    );
+    fields['startedAt'] = Timestamp.fromDate(startedAt);
+    fields['endedAt'] = Timestamp.fromDate(endedAt);
+    // Timestamp local: FieldValue.serverTimestamp() dentro de transactions
+    // no Windows tem associado crashes nativos do SDK C++.
+    fields['createdAt'] = Timestamp.now();
+    return fields;
+  }
+
   void _txWriteSegment(
     Transaction tx, {
     required String userId,
@@ -1365,22 +1445,51 @@ class FirestoreService {
   }) {
     if (durationSeconds <= 0) return;
     final ref = _db.collection('user_work_segments').doc();
-    final fields = buildWorkSegmentExportFields(
-      userId: userId,
-      kind: kind,
-      targetId: targetId,
-      projectId: projectId,
-      description: description,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      durationSeconds: durationSeconds,
-      source: source,
-      event: event,
+    tx.set(
+      ref,
+      _segmentDocumentFields(
+        userId: userId,
+        kind: kind,
+        targetId: targetId,
+        projectId: projectId,
+        description: description,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        durationSeconds: durationSeconds,
+        event: event,
+        source: source,
+      ),
     );
-    fields['startedAt'] = Timestamp.fromDate(startedAt);
-    fields['endedAt'] = Timestamp.fromDate(endedAt);
-    fields['createdAt'] = FieldValue.serverTimestamp();
-    tx.set(ref, fields);
+  }
+
+  Future<void> _writeSegmentDirect({
+    required String userId,
+    required WorkTargetKind kind,
+    required String targetId,
+    required String projectId,
+    required String description,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    required int durationSeconds,
+    required WorkSegmentEvent event,
+    WorkSegmentSource source = WorkSegmentSource.timer,
+  }) async {
+    if (durationSeconds <= 0) return;
+    final ref = _db.collection('user_work_segments').doc();
+    await ref.set(
+      _segmentDocumentFields(
+        userId: userId,
+        kind: kind,
+        targetId: targetId,
+        projectId: projectId,
+        description: description,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        durationSeconds: durationSeconds,
+        event: event,
+        source: source,
+      ),
+    );
   }
 
   Future<void> _preloadClockMigrations(String userId) async {
@@ -1414,57 +1523,55 @@ class FirestoreService {
     final clockRef = _db.collection('user_work_clock').doc(userId);
     final desc = taskDescription.trim();
 
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(clockRef);
-      final now = Timestamp.now();
-      final prev = _clockFromData(snap.data());
-
+    Future<void> apply({
+      required ActiveWorkClock? prev,
+      required Timestamp now,
+      required Future<void> Function(Map<String, dynamic> data) setClock,
+      required Future<void> Function({
+        required WorkTargetKind kind,
+        required String targetId,
+        required String projectId,
+        required int seconds,
+      }) addSeconds,
+      required Future<void> Function({
+        required WorkTargetKind kind,
+        required String targetId,
+        required String projectId,
+        required String description,
+        required DateTime startedAt,
+        required DateTime endedAt,
+        required int durationSeconds,
+      }) writeSeg,
+    }) async {
       if (prev != null &&
           prev.isActiveOn(kind, targetId) &&
           !prev.paused &&
           prev.segmentStartedAt != null) {
-        // Já a correr neste alvo — actualiza só a descrição se veio preenchida.
         if (desc.isNotEmpty && desc != prev.taskDescription) {
-          tx.set(
-            clockRef,
-            {'taskDescription': desc},
-            SetOptions(merge: true),
-          );
+          await setClock({'taskDescription': desc});
         }
         return;
       }
 
       if (prev != null && prev.isActiveOn(kind, targetId) && prev.paused) {
-        tx.set(
-          clockRef,
-          {
-            'segmentStartedAt': now,
-            'paused': false,
-            if (desc.isNotEmpty) 'taskDescription': desc,
-          },
-          SetOptions(merge: true),
-        );
+        await setClock({
+          'segmentStartedAt': now,
+          'paused': false,
+          if (desc.isNotEmpty) 'taskDescription': desc,
+        });
         return;
       }
 
-      if (prev != null &&
-          !prev.paused &&
-          prev.segmentStartedAt != null) {
-        final delta = now
-            .toDate()
-            .difference(prev.segmentStartedAt!)
-            .inSeconds;
-        _transactionAddWorkedSeconds(
-          tx,
-          userId,
-          prev.kind,
-          prev.targetId,
-          prev.projectId,
-          delta,
+      if (prev != null && !prev.paused && prev.segmentStartedAt != null) {
+        final delta =
+            now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+        await addSeconds(
+          kind: prev.kind,
+          targetId: prev.targetId,
+          projectId: prev.projectId,
+          seconds: delta,
         );
-        _txWriteSegment(
-          tx,
-          userId: userId,
+        await writeSeg(
           kind: prev.kind,
           targetId: prev.targetId,
           projectId: prev.projectId,
@@ -1472,12 +1579,10 @@ class FirestoreService {
           startedAt: prev.segmentStartedAt!,
           endedAt: now.toDate(),
           durationSeconds: delta,
-          event: WorkSegmentEvent.switchTarget,
         );
       }
 
-      tx.set(
-        clockRef,
+      await setClock(
         _clockRunningFields(
           kind: kind,
           targetId: targetId,
@@ -1489,7 +1594,101 @@ class FirestoreService {
                   ? prev!.taskDescription
                   : ''),
         ),
-        SetOptions(merge: true),
+      );
+    }
+
+    if (_workTimerAvoidTransactions) {
+      final snap = await clockRef.get();
+      final now = Timestamp.now();
+      final prev = _clockFromData(snap.data());
+      await apply(
+        prev: prev,
+        now: now,
+        setClock: (data) => clockRef.set(data, SetOptions(merge: true)),
+        addSeconds: ({
+          required kind,
+          required targetId,
+          required projectId,
+          required seconds,
+        }) =>
+            _addWorkedSecondsDirect(
+              userId: userId,
+              kind: kind,
+              targetId: targetId,
+              projectId: projectId,
+              seconds: seconds,
+            ),
+        writeSeg: ({
+          required kind,
+          required targetId,
+          required projectId,
+          required description,
+          required startedAt,
+          required endedAt,
+          required durationSeconds,
+        }) =>
+            _writeSegmentDirect(
+              userId: userId,
+              kind: kind,
+              targetId: targetId,
+              projectId: projectId,
+              description: description,
+              startedAt: startedAt,
+              endedAt: endedAt,
+              durationSeconds: durationSeconds,
+              event: WorkSegmentEvent.switchTarget,
+            ),
+      );
+      return;
+    }
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(clockRef);
+      final now = Timestamp.now();
+      final prev = _clockFromData(snap.data());
+      await apply(
+        prev: prev,
+        now: now,
+        setClock: (data) async {
+          tx.set(clockRef, data, SetOptions(merge: true));
+        },
+        addSeconds: ({
+          required kind,
+          required targetId,
+          required projectId,
+          required seconds,
+        }) async {
+          _transactionAddWorkedSeconds(
+            tx,
+            userId,
+            kind,
+            targetId,
+            projectId,
+            seconds,
+          );
+        },
+        writeSeg: ({
+          required kind,
+          required targetId,
+          required projectId,
+          required description,
+          required startedAt,
+          required endedAt,
+          required durationSeconds,
+        }) async {
+          _txWriteSegment(
+            tx,
+            userId: userId,
+            kind: kind,
+            targetId: targetId,
+            projectId: projectId,
+            description: description,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationSeconds: durationSeconds,
+            event: WorkSegmentEvent.switchTarget,
+          );
+        },
       );
     });
   }
@@ -1507,71 +1706,61 @@ class FirestoreService {
     if (userId.isEmpty) return;
     await _preloadClockMigrations(userId);
     final clockRef = _db.collection('user_work_clock').doc(userId);
-
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(clockRef);
-      final prev = _clockFromData(snap.data());
-      if (prev == null || prev.paused || prev.segmentStartedAt == null) return;
-      final now = Timestamp.now();
-      final delta =
-          now.toDate().difference(prev.segmentStartedAt!).inSeconds;
-      _transactionAddWorkedSeconds(
-        tx,
-        userId,
-        prev.kind,
-        prev.targetId,
-        prev.projectId,
-        delta,
-      );
-      _txWriteSegment(
-        tx,
-        userId: userId,
-        kind: prev.kind,
-        targetId: prev.targetId,
-        projectId: prev.projectId,
-        description: prev.taskDescription,
-        startedAt: prev.segmentStartedAt!,
-        endedAt: now.toDate(),
-        durationSeconds: delta,
-        event: WorkSegmentEvent.pause,
-      );
-      tx.set(
-        clockRef,
-        {
-          'activeTargetKind': prev.kind.key,
-          'activeTargetId': prev.targetId,
-          'activeProjectId': prev.projectId,
-          'taskDescription': prev.taskDescription,
-          'paused': true,
-          'segmentStartedAt': FieldValue.delete(),
-        },
-        SetOptions(merge: true),
-      );
-    });
+    final snap = await clockRef.get();
+    final prev = _clockFromData(snap.data());
+    if (prev == null || prev.paused || prev.segmentStartedAt == null) return;
+    final now = Timestamp.now();
+    final delta = now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+    await _addWorkedSecondsDirect(
+      userId: userId,
+      kind: prev.kind,
+      targetId: prev.targetId,
+      projectId: prev.projectId,
+      seconds: delta,
+    );
+    await _writeSegmentDirect(
+      userId: userId,
+      kind: prev.kind,
+      targetId: prev.targetId,
+      projectId: prev.projectId,
+      description: prev.taskDescription,
+      startedAt: prev.segmentStartedAt!,
+      endedAt: now.toDate(),
+      durationSeconds: delta,
+      event: WorkSegmentEvent.pause,
+    );
+    await clockRef.set(
+      {
+        'activeTargetKind': prev.kind.key,
+        'activeTargetId': prev.targetId,
+        'activeProjectId': prev.projectId,
+        'taskDescription': prev.taskDescription,
+        'paused': true,
+        'segmentStartedAt': FieldValue.delete(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Retoma uma sessão em pausa.
   Future<void> resumeWorkTimer(String userId) async {
     if (userId.isEmpty) return;
     final clockRef = _db.collection('user_work_clock').doc(userId);
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(clockRef);
-      final prev = _clockFromData(snap.data());
-      if (prev == null || !prev.paused) return;
-      final now = Timestamp.now();
-      tx.set(
-        clockRef,
-        {
-          'activeTargetKind': prev.kind.key,
-          'activeTargetId': prev.targetId,
-          'activeProjectId': prev.projectId,
-          'taskDescription': prev.taskDescription,
-          'paused': false,
-          'segmentStartedAt': now,
-        },
-        SetOptions(merge: true),
-      );
-    });
+    final snap = await clockRef.get();
+    final prev = _clockFromData(snap.data());
+    if (prev == null || !prev.paused) return;
+    final now = Timestamp.now();
+    await clockRef.set(
+      {
+        'activeTargetKind': prev.kind.key,
+        'activeTargetId': prev.targetId,
+        'activeProjectId': prev.projectId,
+        'taskDescription': prev.taskDescription,
+        'paused': false,
+        'segmentStartedAt': now,
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Actualiza a descrição da tarefa na sessão activa.
@@ -1592,24 +1781,61 @@ class FirestoreService {
     if (userId.isEmpty) return;
     await _preloadClockMigrations(userId);
     final clockRef = _db.collection('user_work_clock').doc(userId);
+    final snap = await clockRef.get();
+    final prev = _clockFromData(snap.data());
+    if (prev == null || prev.paused || prev.segmentStartedAt == null) return;
+    final now = Timestamp.now();
+    final delta = now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+    await _addWorkedSecondsDirect(
+      userId: userId,
+      kind: prev.kind,
+      targetId: prev.targetId,
+      projectId: prev.projectId,
+      seconds: delta,
+    );
+    await _writeSegmentDirect(
+      userId: userId,
+      kind: prev.kind,
+      targetId: prev.targetId,
+      projectId: prev.projectId,
+      description: prev.taskDescription,
+      startedAt: prev.segmentStartedAt!,
+      endedAt: now.toDate(),
+      durationSeconds: delta,
+      event: WorkSegmentEvent.checkpoint,
+    );
+    await clockRef.set(
+      {
+        'activeTargetKind': prev.kind.key,
+        'activeTargetId': prev.targetId,
+        'activeProjectId': prev.projectId,
+        'taskDescription': prev.taskDescription,
+        'paused': false,
+        'segmentStartedAt': now,
+      },
+      SetOptions(merge: true),
+    );
+  }
 
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(clockRef);
-      final prev = _clockFromData(snap.data());
-      if (prev == null || prev.paused || prev.segmentStartedAt == null) return;
-      final now = Timestamp.now();
-      final delta =
-          now.toDate().difference(prev.segmentStartedAt!).inSeconds;
-      _transactionAddWorkedSeconds(
-        tx,
-        userId,
-        prev.kind,
-        prev.targetId,
-        prev.projectId,
-        delta,
+  /// Termina o relógio e grava o segmento actual.
+  Future<void> stopProjectWorkTimer(String userId) async {
+    if (userId.isEmpty) return;
+    await _preloadClockMigrations(userId);
+    final clockRef = _db.collection('user_work_clock').doc(userId);
+    final snap = await clockRef.get();
+    final prev = _clockFromData(snap.data());
+    if (prev == null) return;
+    final now = Timestamp.now();
+    if (!prev.paused && prev.segmentStartedAt != null) {
+      final delta = now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+      await _addWorkedSecondsDirect(
+        userId: userId,
+        kind: prev.kind,
+        targetId: prev.targetId,
+        projectId: prev.projectId,
+        seconds: delta,
       );
-      _txWriteSegment(
-        tx,
+      await _writeSegmentDirect(
         userId: userId,
         kind: prev.kind,
         targetId: prev.targetId,
@@ -1618,60 +1844,10 @@ class FirestoreService {
         startedAt: prev.segmentStartedAt!,
         endedAt: now.toDate(),
         durationSeconds: delta,
-        event: WorkSegmentEvent.checkpoint,
+        event: WorkSegmentEvent.stop,
       );
-      tx.set(
-        clockRef,
-        {
-          'activeTargetKind': prev.kind.key,
-          'activeTargetId': prev.targetId,
-          'activeProjectId': prev.projectId,
-          'taskDescription': prev.taskDescription,
-          'paused': false,
-          'segmentStartedAt': now,
-        },
-        SetOptions(merge: true),
-      );
-    });
-  }
-
-  /// Termina o relógio e grava o segmento actual.
-  Future<void> stopProjectWorkTimer(String userId) async {
-    if (userId.isEmpty) return;
-    await _preloadClockMigrations(userId);
-    final clockRef = _db.collection('user_work_clock').doc(userId);
-
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(clockRef);
-      final prev = _clockFromData(snap.data());
-      if (prev == null) return;
-      final now = Timestamp.now();
-      if (!prev.paused && prev.segmentStartedAt != null) {
-        final delta =
-            now.toDate().difference(prev.segmentStartedAt!).inSeconds;
-        _transactionAddWorkedSeconds(
-          tx,
-          userId,
-          prev.kind,
-          prev.targetId,
-          prev.projectId,
-          delta,
-        );
-        _txWriteSegment(
-          tx,
-          userId: userId,
-          kind: prev.kind,
-          targetId: prev.targetId,
-          projectId: prev.projectId,
-          description: prev.taskDescription,
-          startedAt: prev.segmentStartedAt!,
-          endedAt: now.toDate(),
-          durationSeconds: delta,
-          event: WorkSegmentEvent.stop,
-        );
-      }
-      tx.set(clockRef, _clockClearFields(), SetOptions(merge: true));
-    });
+    }
+    await clockRef.set(_clockClearFields(), SetOptions(merge: true));
   }
 
   /// Ao sair do ecrã: só grava e limpa se o relógio activo for mesmo este alvo.
@@ -1693,37 +1869,32 @@ class FirestoreService {
     if (userId.isEmpty || targetId.isEmpty) return;
     await _prepareWorkTotals(userId, kind, targetId);
     final clockRef = _db.collection('user_work_clock').doc(userId);
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(clockRef);
-      final prev = _clockFromData(snap.data());
-      if (prev == null || !prev.isActiveOn(kind, targetId)) return;
-      final now = Timestamp.now();
-      if (!prev.paused && prev.segmentStartedAt != null) {
-        final delta =
-            now.toDate().difference(prev.segmentStartedAt!).inSeconds;
-        _transactionAddWorkedSeconds(
-          tx,
-          userId,
-          prev.kind,
-          prev.targetId,
-          prev.projectId,
-          delta,
-        );
-        _txWriteSegment(
-          tx,
-          userId: userId,
-          kind: prev.kind,
-          targetId: prev.targetId,
-          projectId: prev.projectId,
-          description: prev.taskDescription,
-          startedAt: prev.segmentStartedAt!,
-          endedAt: now.toDate(),
-          durationSeconds: delta,
-          event: WorkSegmentEvent.stop,
-        );
-      }
-      tx.set(clockRef, _clockClearFields(), SetOptions(merge: true));
-    });
+    final snap = await clockRef.get();
+    final prev = _clockFromData(snap.data());
+    if (prev == null || !prev.isActiveOn(kind, targetId)) return;
+    final now = Timestamp.now();
+    if (!prev.paused && prev.segmentStartedAt != null) {
+      final delta = now.toDate().difference(prev.segmentStartedAt!).inSeconds;
+      await _addWorkedSecondsDirect(
+        userId: userId,
+        kind: prev.kind,
+        targetId: prev.targetId,
+        projectId: prev.projectId,
+        seconds: delta,
+      );
+      await _writeSegmentDirect(
+        userId: userId,
+        kind: prev.kind,
+        targetId: prev.targetId,
+        projectId: prev.projectId,
+        description: prev.taskDescription,
+        startedAt: prev.segmentStartedAt!,
+        endedAt: now.toDate(),
+        durationSeconds: delta,
+        event: WorkSegmentEvent.stop,
+      );
+    }
+    await clockRef.set(_clockClearFields(), SetOptions(merge: true));
   }
 
   CollectionReference<Map<String, dynamic>> _ideScheduleCardsRef(String userId) =>
@@ -1786,16 +1957,15 @@ class FirestoreService {
     final desc = description.trim();
     final ref = _db.collection('user_work_segments').doc();
 
-    await _db.runTransaction((tx) async {
-      _transactionAddWorkedSeconds(
-        tx,
-        userId,
-        kind,
-        tid,
-        pid,
-        durationSeconds,
-      );
-      final fields = buildWorkSegmentExportFields(
+    await _addWorkedSecondsDirect(
+      userId: userId,
+      kind: kind,
+      targetId: tid,
+      projectId: pid,
+      seconds: durationSeconds,
+    );
+    await ref.set(
+      _segmentDocumentFields(
         userId: userId,
         kind: kind,
         targetId: tid,
@@ -1804,14 +1974,10 @@ class FirestoreService {
         startedAt: window.startedAt,
         endedAt: window.endedAt,
         durationSeconds: durationSeconds,
-        source: WorkSegmentSource.manual,
         event: WorkSegmentEvent.manual,
-      );
-      fields['startedAt'] = Timestamp.fromDate(window.startedAt);
-      fields['endedAt'] = Timestamp.fromDate(window.endedAt);
-      fields['createdAt'] = FieldValue.serverTimestamp();
-      tx.set(ref, fields);
-    });
+        source: WorkSegmentSource.manual,
+      ),
+    );
     return ref.id;
   }
 
@@ -1838,27 +2004,24 @@ class FirestoreService {
     final seg = WorkTimeSegment.fromMap(data, segmentId);
     await _prepareWorkTotals(userId, seg.kind, seg.targetId);
 
-    await _db.runTransaction((tx) async {
-      if (seg.durationSeconds > 0) {
-        final totalsRef = _db
-            .collection(workTotalsCollection(seg.kind))
-            .doc(workTotalsDocId(userId, seg.kind, seg.targetId));
-        tx.set(
-          totalsRef,
-          {
-            'userId': userId,
-            'targetKind': seg.kind.key,
-            'targetId': seg.targetId,
-            'projectId':
-                seg.kind == WorkTargetKind.project ? seg.targetId : seg.projectId,
-            'totalSeconds': FieldValue.increment(-seg.durationSeconds),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
-      }
-      tx.delete(ref);
-    });
+    if (seg.durationSeconds > 0) {
+      final totalsRef = _db
+          .collection(workTotalsCollection(seg.kind))
+          .doc(workTotalsDocId(userId, seg.kind, seg.targetId));
+      await totalsRef.set(
+        {
+          'userId': userId,
+          'targetKind': seg.kind.key,
+          'targetId': seg.targetId,
+          'projectId':
+              seg.kind == WorkTargetKind.project ? seg.targetId : seg.projectId,
+          'totalSeconds': FieldValue.increment(-seg.durationSeconds),
+          'updatedAt': Timestamp.now(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+    await ref.delete();
   }
 
   /// Sessão introduzida na app (não pela extensão IDE).

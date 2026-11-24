@@ -179,7 +179,10 @@ class _ProjectWorkTimerCardState extends State<ProjectWorkTimerCard> {
             clock?.isRunningOn(widget.kind, widget.targetId) == true;
         final pausedHere = activeHere && (clock?.paused == true);
 
-        if (activeHere) {
+        if (activeHere &&
+            clock != null &&
+            clock.taskDescription != _descCtrl.text &&
+            (_descCtrl.text.isEmpty || _descCtrl.text == _lastSyncedDesc)) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _syncDescFromClock(clock);
           });
