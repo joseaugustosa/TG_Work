@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/project.dart';
 import '../models/user_billing_settings.dart';
 import '../models/active_work_clock.dart';
-import '../models/work_target_kind.dart';
 import '../models/ide_session_log.dart';
 import '../services/firestore_service.dart';
 import '../utils/billing_calculation.dart';
