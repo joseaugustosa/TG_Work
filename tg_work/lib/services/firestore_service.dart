@@ -17,6 +17,7 @@ import '../models/active_work_clock.dart';
 import '../models/work_target_kind.dart';
 import '../utils/manual_work_segment.dart';
 import '../utils/clock_project_totals.dart';
+import '../utils/work_segment_export.dart';
 import '../models/ide_schedule_card.dart';
 import '../models/ide_schedule_lane.dart';
 import '../models/ide_session_log.dart';
@@ -1359,19 +1360,27 @@ class FirestoreService {
     required DateTime startedAt,
     required DateTime endedAt,
     required int durationSeconds,
+    required WorkSegmentEvent event,
+    WorkSegmentSource source = WorkSegmentSource.timer,
   }) {
     if (durationSeconds <= 0) return;
     final ref = _db.collection('user_work_segments').doc();
-    tx.set(ref, {
-      'userId': userId,
-      'targetKind': kind.key,
-      'targetId': targetId,
-      'projectId': projectId,
-      'description': description,
-      'startedAt': Timestamp.fromDate(startedAt),
-      'endedAt': Timestamp.fromDate(endedAt),
-      'durationSeconds': durationSeconds,
-    });
+    final fields = buildWorkSegmentExportFields(
+      userId: userId,
+      kind: kind,
+      targetId: targetId,
+      projectId: projectId,
+      description: description,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      durationSeconds: durationSeconds,
+      source: source,
+      event: event,
+    );
+    fields['startedAt'] = Timestamp.fromDate(startedAt);
+    fields['endedAt'] = Timestamp.fromDate(endedAt);
+    fields['createdAt'] = FieldValue.serverTimestamp();
+    tx.set(ref, fields);
   }
 
   Future<void> _preloadClockMigrations(String userId) async {
@@ -1463,6 +1472,7 @@ class FirestoreService {
           startedAt: prev.segmentStartedAt!,
           endedAt: now.toDate(),
           durationSeconds: delta,
+          event: WorkSegmentEvent.switchTarget,
         );
       }
 
@@ -1523,6 +1533,7 @@ class FirestoreService {
         startedAt: prev.segmentStartedAt!,
         endedAt: now.toDate(),
         durationSeconds: delta,
+        event: WorkSegmentEvent.pause,
       );
       tx.set(
         clockRef,
@@ -1607,6 +1618,7 @@ class FirestoreService {
         startedAt: prev.segmentStartedAt!,
         endedAt: now.toDate(),
         durationSeconds: delta,
+        event: WorkSegmentEvent.checkpoint,
       );
       tx.set(
         clockRef,
@@ -1655,6 +1667,7 @@ class FirestoreService {
           startedAt: prev.segmentStartedAt!,
           endedAt: now.toDate(),
           durationSeconds: delta,
+          event: WorkSegmentEvent.stop,
         );
       }
       tx.set(clockRef, _clockClearFields(), SetOptions(merge: true));
@@ -1706,6 +1719,7 @@ class FirestoreService {
           startedAt: prev.segmentStartedAt!,
           endedAt: now.toDate(),
           durationSeconds: delta,
+          event: WorkSegmentEvent.stop,
         );
       }
       tx.set(clockRef, _clockClearFields(), SetOptions(merge: true));
@@ -1781,17 +1795,22 @@ class FirestoreService {
         pid,
         durationSeconds,
       );
-      tx.set(ref, {
-        'userId': userId,
-        'targetKind': kind.key,
-        'targetId': tid,
-        'projectId': pid,
-        'description': desc,
-        'startedAt': Timestamp.fromDate(window.startedAt),
-        'endedAt': Timestamp.fromDate(window.endedAt),
-        'durationSeconds': durationSeconds,
-        'source': 'manual',
-      });
+      final fields = buildWorkSegmentExportFields(
+        userId: userId,
+        kind: kind,
+        targetId: tid,
+        projectId: pid,
+        description: desc,
+        startedAt: window.startedAt,
+        endedAt: window.endedAt,
+        durationSeconds: durationSeconds,
+        source: WorkSegmentSource.manual,
+        event: WorkSegmentEvent.manual,
+      );
+      fields['startedAt'] = Timestamp.fromDate(window.startedAt);
+      fields['endedAt'] = Timestamp.fromDate(window.endedAt);
+      fields['createdAt'] = FieldValue.serverTimestamp();
+      tx.set(ref, fields);
     });
     return ref.id;
   }
