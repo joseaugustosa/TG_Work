@@ -11,6 +11,8 @@ class IdeProjectReportSnapshot {
   final String projectName;
   final String projectStatusKey;
   final int ideSeconds;
+  /// Segundos do relógio TG Work (timer + manuais) neste projeto.
+  final int clockSeconds;
   final int kanbanCalendarSeconds;
   final int totalSeconds;
   final int ideSessionCount;
@@ -26,6 +28,7 @@ class IdeProjectReportSnapshot {
     required this.projectName,
     required this.projectStatusKey,
     required this.ideSeconds,
+    this.clockSeconds = 0,
     required this.kanbanCalendarSeconds,
     required this.totalSeconds,
     required this.ideSessionCount,
@@ -59,6 +62,7 @@ class IdeProjectReportSnapshot {
       projectName: (m['projectName'] as String?) ?? '',
       projectStatusKey: (m['projectStatusKey'] as String?) ?? '',
       ideSeconds: i(m['ideSeconds']),
+      clockSeconds: i(m['clockSeconds']),
       kanbanCalendarSeconds: i(m['kanbanCalendarSeconds']),
       totalSeconds: i(m['totalSeconds']),
       ideSessionCount: i(m['ideSessionCount']),
@@ -77,6 +81,7 @@ class IdeProjectReportSnapshot {
       'projectName': projectName,
       'projectStatusKey': projectStatusKey,
       'ideSeconds': ideSeconds,
+      'clockSeconds': clockSeconds,
       'kanbanCalendarSeconds': kanbanCalendarSeconds,
       'totalSeconds': totalSeconds,
       'ideSessionCount': ideSessionCount,

@@ -15,6 +15,7 @@ import '../../services/firestore_service.dart';
 import '../../utils/firestore_messages.dart';
 import '../../utils/ide_project_session_summary.dart';
 import '../../utils/user_display.dart';
+import '../../utils/clock_project_totals.dart';
 import '../../utils/work_segment_timeline.dart';
 import '../../utils/work_timer_format.dart';
 import '../../widgets/edit_ide_session_dialog.dart';
@@ -467,15 +468,24 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                   ),
                 ),
               const SizedBox(height: 12),
-              IdeSessionProgressiveChart(
-                logs: filteredCompletedLogs,
-                projects: projects
-                    .where((p) => !isProjectExcludedFromIdeAgenda(p, excluded))
-                    .toList(),
+              StreamBuilder<Map<String, int>>(
+                stream: _service.watchAllProjectWorkedSeconds(uid),
+                builder: (context, clockSnap) {
+                  final clockByProject = clockSnap.data ?? const <String, int>{};
+                  return IdeSessionProgressiveChart(
+                    logs: filteredCompletedLogs,
+                    projects: projects
+                        .where((p) => !isProjectExcludedFromIdeAgenda(p, excluded))
+                        .toList(),
+                    clockSecondsByProjectId: clockByProject,
+                  );
+                },
               ),
               const SizedBox(height: 12),
-              Builder(
-                builder: (context) {
+              StreamBuilder<Map<String, int>>(
+                stream: _service.watchAllProjectWorkedSeconds(uid),
+                builder: (context, clockSnap) {
+                  final clockByProject = clockSnap.data ?? const <String, int>{};
                   final summaryByProjectId = <String, IdeProjectSessionSummary>{
                     for (final s in summaries)
                       if (s.projectFirestoreId.isNotEmpty) s.projectFirestoreId: s,
@@ -491,7 +501,12 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                     Project project,
                     IdeProjectSessionSummary? ideSummary,
                   ) {
-                    final totalSecs = ideSummary?.totalDurationSeconds ?? 0;
+                    final ideSecs = ideSummary?.totalDurationSeconds ?? 0;
+                    final clockSecs = clockByProject[project.id] ?? 0;
+                    final totalSecs = computeProjectTimeTotal(
+                      ideSeconds: ideSecs,
+                      clockSeconds: clockSecs,
+                    );
                     final totalH = totalSecs ~/ 3600;
                     final totalMin = (totalSecs % 3600) ~/ 60;
                     final totalDays = totalSecs ~/ 86400;
@@ -593,16 +608,39 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                           Text(
                             ideSummary != null
                                 ? '${ideSummary.sessionCount} sessões IDE · ${ideSummary.distinctLocalDays} dias'
-                                : 'Sem sessões IDE registadas',
+                                : (clockSecs > 0
+                                    ? 'Só tempo de relógio (sem sessões IDE)'
+                                    : 'Sem sessões IDE registadas'),
                             style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                           ),
-                          if (ideSummary != null) ...[
+                          if (ideSecs > 0 || clockSecs > 0) ...[
                             const SizedBox(height: 5),
-                            _TimePill(
-                              icon: Icons.terminal,
-                              label: 'IDE',
-                              color: const Color(0xFF1A237E),
-                              seconds: ideSummary.totalDurationSeconds,
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                if (ideSecs > 0)
+                                  _TimePill(
+                                    icon: Icons.terminal,
+                                    label: 'IDE',
+                                    color: const Color(0xFF1A237E),
+                                    seconds: ideSecs,
+                                  ),
+                                if (clockSecs > 0)
+                                  _TimePill(
+                                    icon: Icons.timer_outlined,
+                                    label: 'Relógio',
+                                    color: Colors.orange.shade800,
+                                    seconds: clockSecs,
+                                  ),
+                                if (ideSecs > 0 && clockSecs > 0)
+                                  _TimePill(
+                                    icon: Icons.functions,
+                                    label: 'Total',
+                                    color: Colors.teal.shade800,
+                                    seconds: totalSecs,
+                                  ),
+                              ],
                             ),
                           ],
                         ],
@@ -627,9 +665,9 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Todos os projetos TG Work · Tempo = só sessões '
-                            '(IDE automática ou manuais: VS Code, Cursor, montagem hardware/física). '
-                            'Usa + em cada linha para inserir.',
+                            'Todos os projetos TG Work · Tempo = sessões IDE + '
+                            'relógio (timer e tempos manuais) do mesmo projeto. '
+                            'Usa + para inserir sessão IDE.',
                             style: TextStyle(
                               fontSize: 11.5,
                               height: 1.3,
@@ -966,7 +1004,7 @@ class _IdeAgendaScreenState extends State<IdeAgendaScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      'Tempo IDE (sessões): ${formatWorkDurationSeconds(c.ideTrackedSeconds)}',
+                      'Tempo (IDE + relógio): ${formatWorkDurationSeconds(c.ideTrackedSeconds)}',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

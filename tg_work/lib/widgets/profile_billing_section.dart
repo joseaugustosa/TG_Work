@@ -142,8 +142,8 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
                 const SizedBox(height: 8),
                 Text(
                   'Despesa = horas trabalhadas × valor por hora (€). '
-                  'Contam as sessões (IDE / manuais) e o tempo do relógio TG Work — '
-                  'não o calendário desde a criação do projeto.',
+                  'Contam as sessões IDE e o relógio (timer + tempos manuais) do mesmo projeto — '
+                  'o total junta os dois.',
                   style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.35),
                 ),
                 const SizedBox(height: 16),
@@ -251,9 +251,9 @@ class _ProfileBillingSectionState extends State<ProfileBillingSection> {
                                 stream: _firestore.watchActiveWorkClock(uid),
                                 builder: (context, cSnap) {
                                   final clock = cSnap.data;
+                                  // Qualquer alvo do relógio neste projeto (tema/dev incluídos).
                                   final activeHere = clock != null &&
-                                      clock.kind == WorkTargetKind.project &&
-                                      clock.targetId == project.id &&
+                                      clock.projectId == project.id &&
                                       !clock.paused;
 
                                   int clockTotal(int tick) {

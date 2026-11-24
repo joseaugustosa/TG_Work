@@ -8,15 +8,18 @@ import '../utils/ide_session_time_rollup.dart';
 import '../utils/work_timer_format.dart';
 
 /// Vista «progressiva»: anos → meses → dias, com uma barra horizontal por projeto.
-/// Contabiliza apenas tempo IDE (sessões).
+/// Contabiliza sessões IDE + relógio (mapa opcional por projectId).
 class IdeSessionProgressiveChart extends StatefulWidget {
   final List<IdeSessionLog> logs;
   final List<Project> projects;
+  /// Segundos do relógio (timer + manuais) por projectId TG Work.
+  final Map<String, int> clockSecondsByProjectId;
 
   const IdeSessionProgressiveChart({
     super.key,
     required this.logs,
     required this.projects,
+    this.clockSecondsByProjectId = const {},
   });
 
   @override
@@ -35,13 +38,15 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
     'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
   ];
 
-  /// Segundos IDE por chave `tg:{id}` ou `ws:{workspace}`.
+  /// Segundos IDE (+ relógio em `tg:`) por chave `tg:{id}` ou `ws:{workspace}`.
   int _ideSecondsForKey(String key) {
     if (key.startsWith('tg:')) {
       final pid = key.substring(3);
-      return widget.logs
+      final ide = widget.logs
           .where((l) => l.tgProjectId.trim() == pid)
           .fold<int>(0, (s, l) => s + l.durationSeconds);
+      final clock = widget.clockSecondsByProjectId[pid] ?? 0;
+      return ide + clock;
     }
     if (key.startsWith('ws:')) {
       final ws = key.substring(3);
@@ -179,7 +184,7 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                     }
                     final tooltipLines = [
                       _projectLabel(key),
-                      'IDE: ${formatWorkDurationSeconds(ideSecs)}',
+                      'Total: ${formatWorkDurationSeconds(ideSecs)}',
                       '${((100 * ideSecs) / effectiveTotal).toStringAsFixed(1)}% do total',
                     ].join('\n');
                     return Tooltip(
@@ -359,7 +364,7 @@ class _IdeSessionProgressiveChartState extends State<IdeSessionProgressiveChart>
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             Text(
-              'Cada barra = tempo das sessões IDE neste período.',
+              'Cada barra = IDE + relógio (timer/manual) neste período.',
               style: TextStyle(
                   fontSize: 11.5, height: 1.35, color: Colors.grey.shade700),
             ),

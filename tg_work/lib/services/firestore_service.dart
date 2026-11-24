@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'note_recording_storage.dart';
@@ -14,6 +16,7 @@ import '../models/user_billing_settings.dart';
 import '../models/active_work_clock.dart';
 import '../models/work_target_kind.dart';
 import '../utils/manual_work_segment.dart';
+import '../utils/clock_project_totals.dart';
 import '../models/ide_schedule_card.dart';
 import '../models/ide_schedule_lane.dart';
 import '../models/ide_session_log.dart';
@@ -1057,33 +1060,125 @@ class FirestoreService {
     });
   }
 
-  /// Devolve um stream com o mapa {projectId -> totalSeconds} para todos os
-  /// projectos com tempo registado pelo relógio manual.
-  Stream<Map<String, int>> watchAllProjectWorkedSeconds(String userId) {
-    if (userId.isEmpty) return Stream.value({});
-    return _db
-        .collection('user_project_work')
-        .where('userId', isEqualTo: userId)
-        .snapshots()
-        .map((snap) {
-      final result = <String, int>{};
-      for (final doc in snap.docs) {
-        final pid = doc.data()['projectId'] as String?;
-        if (pid == null || pid.trim().isEmpty) continue;
-        final v = doc.data()['totalSeconds'];
-        final secs = v is int ? v : (v is num ? v.toInt() : 0);
-        result[pid.trim()] = secs;
-      }
-      return result;
-    });
+  Map<String, int> _workDocsSecondsByProjectId(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) {
+    final result = <String, int>{};
+    for (final doc in snap.docs) {
+      final pid = (doc.data()['projectId'] as String?)?.trim() ?? '';
+      if (pid.isEmpty) continue;
+      final v = doc.data()['totalSeconds'];
+      final secs = v is int ? v : (v is num ? v.toInt() : 0);
+      if (secs == 0) continue;
+      result[pid] = (result[pid] ?? 0) + secs;
+    }
+    return result;
   }
 
-  Stream<int> watchProjectWorkedSeconds(String userId, String projectId) {
-    return watchEntityWorkedSeconds(
-      userId,
-      WorkTargetKind.project,
-      projectId,
+  Stream<Map<String, int>> _watchWorkSecondsGroupedByProject(
+    String userId,
+    String collection,
+  ) {
+    return _db
+        .collection(collection)
+        .where('userId', isEqualTo: userId)
+        .snapshots()
+        .map(_workDocsSecondsByProjectId);
+  }
+
+  Stream<Map<String, int>> _combineThreeProjectMaps(
+    Stream<Map<String, int>> projectDirect,
+    Stream<Map<String, int>> themeByProject,
+    Stream<Map<String, int>> developmentByProject,
+  ) {
+    late StreamController<Map<String, int>> controller;
+    var a = <String, int>{};
+    var b = <String, int>{};
+    var c = <String, int>{};
+    var ha = false;
+    var hb = false;
+    var hc = false;
+    StreamSubscription<Map<String, int>>? sa;
+    StreamSubscription<Map<String, int>>? sb;
+    StreamSubscription<Map<String, int>>? sc;
+
+    void emit() {
+      if (!ha || !hb || !hc || controller.isClosed) return;
+      controller.add(
+        mergeClockSecondsByProject(
+          projectDirect: a,
+          themeByProject: b,
+          developmentByProject: c,
+        ),
+      );
+    }
+
+    controller = StreamController<Map<String, int>>(
+      onListen: () {
+        sa = projectDirect.listen((v) {
+          a = v;
+          ha = true;
+          emit();
+        }, onError: controller.addError);
+        sb = themeByProject.listen((v) {
+          b = v;
+          hb = true;
+          emit();
+        }, onError: controller.addError);
+        sc = developmentByProject.listen((v) {
+          c = v;
+          hc = true;
+          emit();
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await sa?.cancel();
+        await sb?.cancel();
+        await sc?.cancel();
+      },
     );
+    return controller.stream;
+  }
+
+  /// Mapa {projectId -> totalSeconds} do relógio: projeto + temas + desenvolvimentos.
+  Stream<Map<String, int>> watchAllProjectWorkedSeconds(String userId) {
+    if (userId.isEmpty) return Stream.value({});
+    return _combineThreeProjectMaps(
+      _watchWorkSecondsGroupedByProject(userId, 'user_project_work'),
+      _watchWorkSecondsGroupedByProject(userId, 'user_theme_work'),
+      _watchWorkSecondsGroupedByProject(userId, 'user_development_work'),
+    );
+  }
+
+  /// Uma leitura pontual do mesmo mapa (relatórios / Kanban).
+  Future<Map<String, int>> fetchAllProjectWorkedSeconds(String userId) async {
+    if (userId.isEmpty) return {};
+    final snaps = await Future.wait([
+      _db
+          .collection('user_project_work')
+          .where('userId', isEqualTo: userId)
+          .get(),
+      _db
+          .collection('user_theme_work')
+          .where('userId', isEqualTo: userId)
+          .get(),
+      _db
+          .collection('user_development_work')
+          .where('userId', isEqualTo: userId)
+          .get(),
+    ]);
+    return mergeClockSecondsByProject(
+      projectDirect: _workDocsSecondsByProjectId(snaps[0]),
+      themeByProject: _workDocsSecondsByProjectId(snaps[1]),
+      developmentByProject: _workDocsSecondsByProjectId(snaps[2]),
+    );
+  }
+
+  /// Total do relógio no projeto (inclui temas e desenvolvimentos desse projeto).
+  Stream<int> watchProjectWorkedSeconds(String userId, String projectId) {
+    if (userId.isEmpty || projectId.isEmpty) return Stream.value(0);
+    return watchAllProjectWorkedSeconds(userId)
+        .map((m) => m[projectId] ?? 0);
   }
 
   Stream<int> watchEntityWorkedSeconds(
@@ -2339,6 +2434,7 @@ class FirestoreService {
         .where((s) => !excludedAggregateKeys.contains(s.aggregateKey))
         .toList();
     final summaryKeys = summaries.map((s) => s.aggregateKey).toSet();
+    final clockByProject = await fetchAllProjectWorkedSeconds(userId);
 
     // Apagar cartões de entradas excluídas da agenda
     for (final c in cards) {
@@ -2378,7 +2474,13 @@ class FirestoreService {
 
     for (final s in summaries) {
       final aggKey = s.aggregateKey;
-      final secs = s.totalDurationSeconds;
+      final clockSecs = s.projectFirestoreId.isEmpty
+          ? 0
+          : (clockByProject[s.projectFirestoreId] ?? 0);
+      final secs = computeProjectTimeTotal(
+        ideSeconds: s.totalDurationSeconds,
+        clockSeconds: clockSecs,
+      );
       final desiredTitle = s.displayLabel;
       final bucket = byKey[aggKey];
 
@@ -2525,6 +2627,7 @@ class FirestoreService {
       for (final s in summaries)
         if (s.projectFirestoreId.isNotEmpty) s.projectFirestoreId: s,
     };
+    final clockByProject = await fetchAllProjectWorkedSeconds(userId);
 
     for (final project in projects) {
       final aggKey = 'tg:${project.id}';
@@ -2534,6 +2637,7 @@ class FirestoreService {
         userId: userId,
         project: project,
         ideSummary: summaryByProjectId[project.id],
+        clockSeconds: clockByProject[project.id] ?? 0,
         execStartDate: firstExecDateByProjectId[project.id],
       );
       await upsertIdeProjectReport(snapshot);
